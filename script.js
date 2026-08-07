@@ -1457,7 +1457,7 @@ function renderMatches() {
       <div class="match-card" style="background:#1e3e62; margin-bottom:15px; padding:15px; border-radius:8px; position:relative;">
         
         <!-- Header: Runde, Gruppe & Platz Badge -->
-        <div style="display:flex; justify-between; align-items:center; margin-bottom:10px;">
+        <div style="display:flex; justify-content: space-between; align-items:center; margin-bottom:10px;">
           <span style="color:var(--fal-yellow); font-weight:bold;">Runde ${m.slot || idx + 1} • ${m.group}</span>
           <span class="badge" style="background:${courtName === 'Hauptplatz' ? '#e74c3c' : '#2ecc71'}; color:white; padding:3px 8px; border-radius:4px; font-size:0.8em; font-weight:bold;">
             ${courtName}
@@ -1479,7 +1479,7 @@ function renderMatches() {
         <div style="display:flex; flex-direction:column; gap:8px;">
           
           <!-- HINSPIEL (Gelb: P1 vs P1) -->
-          <div style="padding:8px; border-radius:5px; ${hinLegColor} display:flex; align-items:center; justify-content:space-between;">
+          <div style="padding:8px; border-radius:5px; ${hinLegColor}; display:flex; align-items:center; justify-content:space-between;">
             <span style="font-size:0.85em;">🟡 <strong>Hinspiel:</strong> ${t1.p1} vs. ${t2.p1}</span>
             <div style="display:flex; gap:5px; align-items:center;">
               <input type="number" id="m_${m.id}_h1" min="0" max="20" style="width:40px; text-align:center;" value="${m.score1_h !== null && m.score1_h !== undefined ? m.score1_h : ''}">
@@ -1489,7 +1489,7 @@ function renderMatches() {
           </div>
 
           <!-- RÜCKSPIEL (Blau: P2 vs P2) -->
-          <div style="padding:8px; border-radius:5px; ${rueckLegColor} display:flex; align-items:center; justify-content:space-between;">
+          <div style="padding:8px; border-radius:5px; ${rueckLegColor}; display:flex; align-items:center; justify-content:space-between;">
             <span style="font-size:0.85em;">🔵 <strong>Rückspiel:</strong> ${t1.p2} vs. ${t2.p2}</span>
             <div style="display:flex; gap:5px; align-items:center;">
               <input type="number" id="m_${m.id}_r1" min="0" max="20" style="width:40px; text-align:center;" value="${m.score1_r !== null && m.score1_r !== undefined ? m.score1_r : ''}">
@@ -1500,9 +1500,9 @@ function renderMatches() {
 
         </div>
 
-        <!-- Speichern Button -->
+        <!-- NEU: Ruft updateMatchScore auf und übergibt die Spiel-ID & 'false' (weil Gruppenspiel) -->
         ${isAdmin() ? `
-          <button class="btn-primary" style="margin-top:10px; width:100%; padding:6px; font-size:0.9em;" onclick="saveMatchScores(${m.id})">
+          <button class="btn-primary" style="margin-top:10px; width:100%; padding:8px; font-weight:bold;" onclick="updateMatchScore(${m.id}, false)">
             💾 Ergebnisse speichern
           </button>
         ` : ''}
