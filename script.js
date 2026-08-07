@@ -13,13 +13,15 @@ window.removePlayer = removePlayer;
 window.toggleRef = toggleRef;
 window.setPlayerPassword = setPlayerPassword;
 window.removePlayerPassword = removePlayerPassword;
+window.toggleRegistrationLock = toggleRegistrationLock;
 window.drawGroups = drawGroups;
 window.drawKOPhase = drawKOPhase;
 window.drawSemifinals = drawSemifinals;
 window.drawFinals = drawFinals;
 window.resetTournament = resetTournament;
 window.updateTeamName = updateTeamName;
-window.updateMatchScore = updateMatchScore;
+window.submitMatchResult = submitMatchResult;
+window.confirmMatchResult = confirmMatchResult;
 window.addClub = addClub;
 window.removeClub = removeClub;
 window.resetClubsToDefault = resetClubsToDefault;
@@ -27,6 +29,7 @@ window.startInteractiveDraft = startInteractiveDraft;
 window.spinWheel = spinWheel;
 window.nextDraftStep = nextDraftStep;
 window.finishDraft = finishDraft;
+window.cancelDraft = cancelDraft;
 window.saveRules = saveRules;
 window.submitTip = submitTip;
 window.placeBet = placeBet;
@@ -50,7 +53,7 @@ const db = firebase.database();
 const ADMIN_PASSWORD = "1234";
 
 const DEFAULT_CLUBS = [
-  "Real Madrid", "FC Bayern", "ManCity", "Arsenal", 
+  "Real Madrid", "FC Bayern", "ManCity", "Arsenal",
   "FC Barcelona", "PSG", "Inter Mailand", "Leverkusen",
   "Liverpool", "ManU", "Atletico", "BVB"
 ];
@@ -65,19 +68,16 @@ let groups = [];
 let groupMatches = [];
 let koMatches = [];
 let rules = DEFAULT_RULES;
-let tips = {};
+let tips = {};          // { playerName: { teamId, amount } }
+let tipsEvaluated = false;
+let registrationLocked = false;
 let myPlayerName = localStorage.getItem('fifa_my_player') || null;
 let pendingAdminLogin = false;
-let userBalances = {}; // Speichert die Coins pro Spieler { "Name": 100 }
-let bets = [];         // Speichert alle abgegebenen Wetten
+let userBalances = {};  // { "Name": 100 }
+let bets = [];          // { matchId, isKO, playerName, chosenTeamId, amount }
 
-// Status-Variablen für das neue Auslosungs-System (Duo-Draft)
-let currentDraftStep = 0; // 0: P1 wählen, 1: P2 wählen, 2: Club wählen
-let tempP1 = null;
-let tempP2 = null;
-let remainingPlayersForDraft = [];
-let remainingClubsForDraft = [];
-
+// Status-Variablen für das Auslosungs-System (Duo-Draft) - UNVERÄNDERT
+let draftState = { active: false, currentStep: 0, tempP1: null, tempP2: null, remainingPlayers: [], remainingClubs: [], spinning: false, startTime: null, targetAngle: 0, duration: 4000, lastDrawnItem: null, pairs: [] };
 let animFrameId = null;
 
 function getPlayerObj(name) {
@@ -91,16 +91,26 @@ function isAdmin() {
 
 function isRef() {
   const p = getPlayerObj(myPlayerName);
-  return p && p.isRef;
+  return !!(p && p.isRef);
 }
 
-function canManageMatches() {
+// Ref hat exakt die gleichen Rechte wie Admin, AUSSER: Spieler löschen & Ref-Rolle selbst vergeben/entziehen.
+function hasElevated() {
   return isAdmin() || isRef();
+}
+// Alias, damit alte Bezeichnung weiterhin funktioniert
+function canManageMatches() {
+  return hasElevated();
 }
 
 function getMyTeam() {
   if (!myPlayerName) return null;
   return teams.find(t => t.p1 === myPlayerName || t.p2 === myPlayerName);
+}
+
+function isTournamentFinished() {
+  const finale = koMatches.find(m => m.round === '🏆 FINALE');
+  return !!(finale && finale.confirmed);
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -137,20 +147,20 @@ function enterAsSpectator() {
   document.getElementById('app-header').style.display = 'flex';
   document.getElementById('app-nav').style.display = 'flex';
   document.getElementById('app-main').style.display = 'block';
-  
+
   const userBadge = document.getElementById('user-badge');
   if (userBadge) {
     let roleTag = '';
     if (isAdmin()) roleTag = '⭐ (Admin)';
     else if (isRef()) roleTag = '🟨 (Ref)';
 
-    userBadge.innerHTML = myPlayerName 
+    userBadge.innerHTML = myPlayerName
       ? `Angemeldet als: <strong>${myPlayerName}</strong> ${roleTag}`
       : 'Modus: <strong>Zuschauer</strong>';
   }
 
   const adminBtn = document.getElementById('btn-admin');
-  if (adminBtn) adminBtn.style.display = isAdmin() ? 'inline-block' : 'none';
+  if (adminBtn) adminBtn.style.display = hasElevated() ? 'inline-block' : 'none';
 
   showTab('home');
 }
@@ -158,16 +168,20 @@ function enterAsSpectator() {
 function switchUser() {
   localStorage.removeItem('fifa_my_player');
   myPlayerName = null;
-  
+
   document.getElementById('app-header').style.display = 'none';
   document.getElementById('app-nav').style.display = 'none';
   document.getElementById('app-main').style.display = 'none';
-  
+
   resetRoleSelection();
   document.getElementById('role-selection-modal').style.display = 'flex';
 }
 
 function showNewPlayerInput() {
+  if (registrationLocked) {
+    alert('Die Registrierung neuer Spieler wurde vom Admin gesperrt.');
+    return;
+  }
   document.getElementById('role-options').style.display = 'none';
   document.getElementById('new-player-select').style.display = 'block';
   document.getElementById('existing-players-select').style.display = 'none';
@@ -187,7 +201,7 @@ function showExistingPlayers() {
       </button>
     `).join('');
   }
-  
+
   document.getElementById('role-options').style.display = 'none';
   document.getElementById('new-player-select').style.display = 'none';
   document.getElementById('existing-players-select').style.display = 'block';
@@ -214,13 +228,17 @@ function selectMyPlayer(name) {
     promptPassword('player', name, `🔒 Passwort für ${name} eingeben:`);
     return;
   }
-  
+
   myPlayerName = name;
   localStorage.setItem('fifa_my_player', name);
   enterAsSpectator();
 }
 
 function registerNewPlayer() {
+  if (registrationLocked) {
+    alert('Die Registrierung neuer Spieler wurde vom Admin gesperrt.');
+    return;
+  }
   const input = document.getElementById('self-player-name');
   const name = input ? input.value.trim() : '';
   if (!name) return alert('Bitte Namen eingeben!');
@@ -245,10 +263,10 @@ function promptPassword(type, name, textPrompt) {
   document.getElementById('new-player-select').style.display = 'none';
   document.getElementById('existing-players-select').style.display = 'none';
   document.getElementById('admin-password-select').style.display = 'block';
-  
+
   const textEl = document.getElementById('password-prompt-text');
   if (textEl) textEl.innerText = textPrompt;
-  
+
   const pwdInput = document.getElementById('admin-password-input');
   if (pwdInput) pwdInput.value = '';
 }
@@ -294,20 +312,15 @@ function showTab(tabName) {
   if (btn) btn.classList.add('active');
   if (tab) tab.classList.add('active');
 
-  // NEU: Beim Tab-Wechsel direkt die Ansichten neu zeichnen
-  if (tabName === 'matches' || tabName === 'spiele') {
-    if (typeof renderMatches === 'function') renderMatches();
-  }
-  if (tabName === 'groups' || tabName === 'gruppen') {
-    if (typeof renderGroups === 'function') renderGroups();
-  }
+  if (tabName === 'matches') renderMatches();
+  if (tabName === 'groups') renderGroups();
 }
 
 // 4. Live-Sync via Firebase
 db.ref('tournament').on('value', (snapshot) => {
   const data = snapshot.val() || {};
   let rawPlayers = data.players || [];
-  
+
   players = rawPlayers.map(p => typeof p === 'string' ? { name: p, isRef: false, password: null } : p);
   availableClubs = data.availableClubs || [...DEFAULT_CLUBS];
   teams = data.teams || [];
@@ -316,9 +329,10 @@ db.ref('tournament').on('value', (snapshot) => {
   koMatches = data.koMatches || [];
   rules = data.rules || DEFAULT_RULES;
   tips = data.tips || {};
-  draftState = data.draftState || { active: false, pairs: [], currentIndex: 0, remainingClubs: [], spinning: false, startTime: null, targetAngle: 0, duration: 4000, lastDrawnClub: null };
-  
-  // Neu für das Wett-System:
+  tipsEvaluated = data.tipsEvaluated || false;
+  registrationLocked = data.registrationLocked || false;
+  draftState = data.draftState || { active: false, currentStep: 0, tempP1: null, tempP2: null, remainingPlayers: [], remainingClubs: [], spinning: false, startTime: null, targetAngle: 0, duration: 4000, lastDrawnItem: null, pairs: [] };
+
   userBalances = data.userBalances || {};
   bets = data.bets || [];
 
@@ -327,15 +341,17 @@ db.ref('tournament').on('value', (snapshot) => {
 });
 
 function saveData() {
-  db.ref('tournament').set({ 
-    players, 
-    availableClubs, 
-    teams, 
-    groups, 
-    groupMatches, 
-    koMatches, 
-    rules, 
-    tips, 
+  db.ref('tournament').set({
+    players,
+    availableClubs,
+    teams,
+    groups,
+    groupMatches,
+    koMatches,
+    rules,
+    tips,
+    tipsEvaluated,
+    registrationLocked,
     draftState,
     userBalances,
     bets
@@ -344,6 +360,7 @@ function saveData() {
 
 // 5. Profi-Clubs Verwaltung
 function addClub() {
+  if (!hasElevated()) return;
   const input = document.getElementById('new-club-name');
   const name = input ? input.value.trim() : '';
   if (!name) return;
@@ -355,71 +372,22 @@ function addClub() {
 }
 
 function removeClub(index) {
-  if (!isAdmin()) return;
+  if (!hasElevated()) return;
   availableClubs.splice(index, 1);
   saveData();
 }
 
 function resetClubsToDefault() {
-  if (!isAdmin()) return;
+  if (!hasElevated()) return;
   if (confirm('Verfügbare Clubs auf Standard-Topteams zurücksetzen?')) {
     availableClubs = [...DEFAULT_CLUBS];
     saveData();
   }
 }
 
-// 6. LIVE INTERAKTIVE AUSLOSUNG SHOW
+// 6. LIVE INTERAKTIVE AUSLOSUNG SHOW (3-Schritt System: P1 -> P2 -> Club) - UNVERÄNDERT
 function startInteractiveDraft() {
-  if (!isAdmin()) return;
-  if (players.length < 2 || players.length % 2 !== 0) {
-    return alert(`Du benötigst eine gerade Anzahl an Spielern (aktuell: ${players.length}).`);
-  }
-  if (availableClubs.length < (players.length / 2)) {
-    return alert(`Du hast zu wenige Profi-Clubs in der Liste! Mindestens ${players.length / 2} benötigt.`);
-  }
-
-  if (confirm('Soll die Auslosungs-Show jetzt LIVE gestartet werden?')) {
-    const shuffledPlayers = [...players.map(p => p.name)].sort(() => Math.random() - 0.5);
-    const shuffledClubs = [...availableClubs].sort(() => Math.random() - 0.5);
-
-    let pairs = [];
-    let idCounter = 1;
-    for (let i = 0; i < shuffledPlayers.length; i += 2) {
-      pairs.push({
-        id: idCounter,
-        name: `Team ${idCounter}`,
-        p1: shuffledPlayers[i],
-        p2: shuffledPlayers[i + 1],
-        club: null
-      });
-      idCounter++;
-    }
-
-    teams = [];
-    groups = [];
-    groupMatches = [];
-    koMatches = [];
-    tips = {};
-
-    draftState = {
-      active: true,
-      pairs: pairs,
-      currentIndex: 0,
-      remainingClubs: shuffledClubs,
-      spinning: false,
-      startTime: null,
-      targetAngle: 0,
-      duration: 4000,
-      lastDrawnClub: null
-    };
-
-    saveData();
-  }
-}
-
-// 6. LIVE INTERAKTIVE AUSLOSUNG SHOW (3-Schritt System: P1 -> P2 -> Club)
-function startInteractiveDraft() {
-  if (!isAdmin()) return;
+  if (!hasElevated()) return;
   if (players.length < 4 || players.length % 2 !== 0) {
     return alert(`Du benötigst eine gerade und ausreichend hohe Anzahl an Spielern (aktuell: ${players.length}).`);
   }
@@ -433,6 +401,7 @@ function startInteractiveDraft() {
     groupMatches = [];
     koMatches = [];
     tips = {};
+    tipsEvaluated = false;
 
     draftState = {
       active: true,
@@ -445,7 +414,8 @@ function startInteractiveDraft() {
       startTime: null,
       targetAngle: 0,
       duration: 4000,
-      lastDrawnItem: null
+      lastDrawnItem: null,
+      pairs: []
     };
 
     saveData();
@@ -459,7 +429,7 @@ function handleLiveDraftUI() {
 
   if (!draftState || !draftState.active) {
     modal.style.display = 'none';
-    if (typeof animFrameId !== 'undefined' && animFrameId) cancelAnimationFrame(animFrameId);
+    if (animFrameId) cancelAnimationFrame(animFrameId);
     return;
   }
 
@@ -471,16 +441,14 @@ function renderDraftStep() {
   const stage = document.getElementById('draft-stage');
   if (!stage) return;
 
-  // PRÜFUNG: Erst wenn keine Spieler MEHR übrig sind UND auch keine Clubs mehr gelost werden müssen (currentStep 0 + tempP1 ist leer)
   const noPlayersLeft = !draftState.remainingPlayers || draftState.remainingPlayers.length === 0;
-  const noClubsLeft = !draftState.remainingClubs || draftState.remainingClubs.length === 0;
   const noDuoPending = !draftState.tempP1 && !draftState.tempP2 && !draftState.lastDrawnItem;
 
   if (noPlayersLeft && noDuoPending) {
     stage.innerHTML = `
       <h3 style="color:#4CAF50; margin-bottom: 10px;">🎉 Alle Teams & Clubs wurden gelost! 🎉</h3>
       <p>Die Duos und ihre Profi-Vereine stehen fest.</p>
-      ${isAdmin() ? `
+      ${hasElevated() ? `
         <button class="btn-primary role-btn" style="margin-top:15px;" onclick="finishDraft()">
           💾 Teams speichern & Auslosung beenden
         </button>
@@ -489,7 +457,6 @@ function renderDraftStep() {
     return;
   }
 
-  // ... hier läuft dein restlicher Code von renderDraftStep() ganz normal weiter ...
   const currentTeamNum = (draftState.pairs ? draftState.pairs.length : teams.length) + 1;
   let stepText = '';
   if (draftState.currentStep === 0) stepText = '🎰 Step 1: Lose <strong>Spieler 1</strong>';
@@ -514,7 +481,7 @@ function renderDraftStep() {
       ${draftState.lastDrawnItem ? `🎯 Gezogen: <u>${draftState.lastDrawnItem}</u>` : ''}
     </div>
 
-    ${isAdmin() ? `
+    ${hasElevated() ? `
       <div style="margin-top:15px; display:flex; gap:10px; justify-content:center;">
         ${!draftState.spinning && !draftState.lastDrawnItem ? `
           <button class="btn-primary role-btn" id="btn-spin-wheel" onclick="spinWheel()">
@@ -539,9 +506,7 @@ function renderDraftStep() {
     `}
   `;
 
-  if (typeof startWheelAnimationLoop === 'function') {
-    startWheelAnimationLoop();
-  }
+  startWheelAnimationLoop();
 }
 
 function startWheelAnimationLoop() {
@@ -555,13 +520,10 @@ function startWheelAnimationLoop() {
     if (draftState.spinning && draftState.startTime) {
       const elapsed = Date.now() - draftState.startTime;
       const progress = Math.min(elapsed / (draftState.duration || 4000), 1);
-      
-      // Sanftes Abbremsen (Easing)
       const easeOut = 1 - Math.pow(1 - progress, 3);
       currentAngle = (draftState.targetAngle || 0) * easeOut;
 
       if (progress >= 1) {
-        // Animation beendet -> Loop stoppen
         drawWheelCanvas(draftState.targetAngle);
         return;
       }
@@ -584,7 +546,6 @@ function drawWheelCanvas(angleOffset) {
   if (!canvas) return;
   const ctx = canvas.getContext('2d');
 
-  // Pool dynamisch je nach Schritt bestimmen (0 & 1 = Spieler, 2 = Clubs)
   let items = [];
   if (draftState.currentStep === 0 || draftState.currentStep === 1) {
     items = draftState.remainingPlayers;
@@ -622,8 +583,7 @@ function drawWheelCanvas(angleOffset) {
     ctx.textAlign = "right";
     ctx.fillStyle = "#ffffff";
     ctx.font = "bold 11px sans-serif";
-    
-    // Kürzen der Namen auf max. 12 Zeichen (wie bei dir)
+
     const text = String(items[i]).substring(0, 12);
     ctx.fillText(text, 120, 4);
     ctx.restore();
@@ -631,9 +591,8 @@ function drawWheelCanvas(angleOffset) {
 }
 
 function spinWheel() {
-  if (!isAdmin() || draftState.spinning) return;
+  if (!hasElevated() || draftState.spinning) return;
 
-  // Richtigen Pool ermitteln
   let currentPool = [];
   if (draftState.currentStep === 0 || draftState.currentStep === 1) {
     currentPool = draftState.remainingPlayers;
@@ -662,22 +621,18 @@ function spinWheel() {
   draftState.lastDrawnItem = null;
   saveData();
 
-  // Nach Ablauf der Dreh-Animation (4 Sekunden)
   setTimeout(() => {
-    if (isAdmin() && draftState.spinning) {
+    if (hasElevated() && draftState.spinning) {
       draftState.spinning = false;
       draftState.lastDrawnItem = targetItem;
 
-      // Werte je nach Schritt ablegen
       if (draftState.currentStep === 0) {
         draftState.tempP1 = targetItem;
       } else if (draftState.currentStep === 1) {
         draftState.tempP2 = targetItem;
       } else if (draftState.currentStep === 2) {
-        // Sicherstellen, dass draftState.pairs ein Array ist
         if (!draftState.pairs) draftState.pairs = [];
-        
-        // Neues Team mit Duo + Club abspeichern
+
         const newTeam = {
           id: draftState.pairs.length + 1,
           name: `Team ${draftState.pairs.length + 1}`,
@@ -695,29 +650,26 @@ function spinWheel() {
 }
 
 function nextDraftStep() {
-  if (!isAdmin()) return;
+  if (!hasElevated()) return;
 
   if (draftState.lastDrawnItem) {
     if (draftState.currentStep === 0) {
-      // Spieler 1 aus Pool entfernen -> Weiter zu Spieler 2
       const idx = draftState.remainingPlayers.indexOf(draftState.lastDrawnItem);
       if (idx !== -1) draftState.remainingPlayers.splice(idx, 1);
       draftState.currentStep = 1;
 
     } else if (draftState.currentStep === 1) {
-      // Spieler 2 aus Pool entfernen -> Weiter zum Club
       const idx = draftState.remainingPlayers.indexOf(draftState.lastDrawnItem);
       if (idx !== -1) draftState.remainingPlayers.splice(idx, 1);
       draftState.currentStep = 2;
 
     } else if (draftState.currentStep === 2) {
-      // Club aus Club-Pool entfernen -> Duo ist fertig! Reset für nächstes Team
       const idx = draftState.remainingClubs.indexOf(draftState.lastDrawnItem);
       if (idx !== -1) draftState.remainingClubs.splice(idx, 1);
-      
+
       draftState.tempP1 = null;
       draftState.tempP2 = null;
-      draftState.currentStep = 0; // Zurück zu Schritt 1 (Spieler 1 für Team X)
+      draftState.currentStep = 0;
     }
   }
 
@@ -729,18 +681,42 @@ function nextDraftStep() {
   saveData();
   renderDraftStep();
 }
+
 function finishDraft() {
-  if (!isAdmin()) return;
+  if (!hasElevated()) return;
   teams = [...draftState.pairs];
   draftState.active = false;
   saveData();
-  if (typeof showTab === 'function') showTab('teams');
+  showTab('teams');
   renderAll();
   alert("🎉 Auslosung beendet! Die Teams wurden geladen.");
 }
 
+function cancelDraft() {
+  if (!hasElevated()) return;
+
+  if (confirm("Möchtest du die Auslosung wirklich abbrechen und zurücksetzen?")) {
+    if (animFrameId) cancelAnimationFrame(animFrameId);
+
+    draftState = {
+      active: false, spinning: false, currentStep: 0,
+      tempP1: null, tempP2: null, lastDrawnItem: null,
+      remainingPlayers: [], remainingClubs: [], pairs: []
+    };
+
+    saveData();
+
+    const modal = document.getElementById('draft-modal');
+    if (modal) modal.style.display = 'none';
+
+    renderAll();
+    alert("Auslosung wurde zurückgesetzt!");
+  }
+}
+
 // 7. Standard Admin Handlungen
 function addPlayer() {
+  if (!hasElevated()) return;
   const input = document.getElementById('new-player-name');
   const name = input ? input.value.trim() : '';
   if (!name) return;
@@ -752,19 +728,19 @@ function addPlayer() {
 }
 
 function removePlayer(index) {
-  if (!isAdmin()) return;
+  if (!isAdmin()) return; // NUR Admin darf Spieler löschen
   players.splice(index, 1);
   saveData();
 }
 
 function toggleRef(index) {
-  if (!isAdmin()) return;
+  if (!isAdmin()) return; // NUR Admin darf Ref-Rechte vergeben/entziehen
   players[index].isRef = !players[index].isRef;
   saveData();
 }
 
 function setPlayerPassword(index) {
-  if (!isAdmin()) return;
+  if (!hasElevated()) return;
   const pwd = prompt(`Neues Passwort für ${players[index].name} eingeben:`);
   if (pwd !== null) {
     if (pwd.trim() === '') return alert('Passwort darf nicht leer sein.');
@@ -774,15 +750,51 @@ function setPlayerPassword(index) {
 }
 
 function removePlayerPassword(index) {
-  if (!isAdmin()) return;
+  if (!hasElevated()) return;
   if (confirm(`Passwort von ${players[index].name} wirklich löschen?`)) {
     players[index].password = null;
     saveData();
   }
 }
 
+function toggleRegistrationLock() {
+  if (!hasElevated()) return;
+  registrationLocked = !registrationLocked;
+  saveData();
+}
+
+// 8. Gruppen- & KO-Auslosung
+function makeMatch(id, group, slot, t1Id, t2Id) {
+  return {
+    id, group, slot,
+    court: null,
+    t1Id, t2Id,
+    crossed: Math.random() < 0.5, // zufällig: 1v1 oder über Kreuz (1v2 / 2v1)
+    score1_h: null, score2_h: null,
+    score1_r: null, score2_r: null,
+    score1: null, score2: null,
+    played: false,
+    confirmed: false,
+    betsEvaluated: false
+  };
+}
+
+function makeKOMatch(id, round, court, t1Id, t2Id) {
+  return {
+    id, round, court,
+    t1Id, t2Id,
+    crossed: Math.random() < 0.5,
+    score1_h: null, score2_h: null,
+    score1_r: null, score2_r: null,
+    score1: null, score2: null,
+    played: false,
+    confirmed: false,
+    betsEvaluated: false
+  };
+}
+
 function drawGroups() {
-  if (!isAdmin()) return;
+  if (!hasElevated()) return;
   if (!teams || teams.length < 3) {
     return alert(`Du benötigst mindestens 3 Teams (aktuell: ${teams ? teams.length : 0}).`);
   }
@@ -791,37 +803,25 @@ function drawGroups() {
     const groupLetters = ['Gruppe A', 'Gruppe B', 'Gruppe C'];
     const shuffledTeams = [...teams].sort(() => Math.random() - 0.5);
 
-    // 1. Gruppen A, B, C anlegen
     groups = groupLetters.map(letter => ({ letter, teams: [] }));
 
-    // 2. Teams gleichmäßig auf die 3 Gruppen verteilen
     shuffledTeams.forEach((team, index) => {
       groups[index % groups.length].teams.push(team.id);
     });
 
-    // 3. Jeder-gegen-Jeden Spiele innerhalb der Gruppen erstellen
     let rawGroupMatches = [];
     groups.forEach(group => {
       const gTeams = group.teams;
       for (let i = 0; i < gTeams.length; i++) {
         for (let j = i + 1; j < gTeams.length; j++) {
-          rawGroupMatches.push({
-            group: group.letter,
-            t1Id: gTeams[i],
-            t2Id: gTeams[j],
-            score1_h: null, score2_h: null, // Hinspiel-Tore
-            score1_r: null, score2_r: null, // Rückspiel-Tore
-            score1: null,   score2: null,   // Gesamttore
-            played: false
-          });
+          rawGroupMatches.push(makeMatch(null, group.letter, null, gTeams[i], gTeams[j]));
         }
       }
     });
 
-    // 4. Spiele abwechselnd mischen (Gruppe A -> B -> C -> A...)
     let matchesByGroup = {};
-    groupLetters.forEach(l => { 
-      matchesByGroup[l] = rawGroupMatches.filter(m => m.group === l); 
+    groupLetters.forEach(l => {
+      matchesByGroup[l] = rawGroupMatches.filter(m => m.group === l);
     });
 
     let interleavedMatches = [];
@@ -829,132 +829,92 @@ function drawGroups() {
 
     for (let i = 0; i < maxLen; i++) {
       groupLetters.forEach(l => {
-        if (matchesByGroup[l][i]) {
-          interleavedMatches.push(matchesByGroup[l][i]);
-        }
+        if (matchesByGroup[l][i]) interleavedMatches.push(matchesByGroup[l][i]);
       });
     }
 
-    // 5. IDs & Slots zuweisen und in das globale groupMatches Array speichern
     groupMatches = [];
     let matchId = 1;
     interleavedMatches.forEach((match, idx) => {
       match.id = matchId++;
       match.slot = idx + 1;
+      match.court = (idx % 2 === 1) ? 'Nebenplatz' : 'Hauptplatz';
       groupMatches.push(match);
     });
 
     koMatches = [];
     saveData();
+    renderAll();
+    showTab('matches');
 
-    // 6. Beide Reiter (Gruppen-Tabelle UND Spielplan) sofort neu zeichnen
-    if (typeof renderAll === 'function') {
-      renderAll();
-    } else {
-      if (typeof renderGroups === 'function') renderGroups();
-      if (typeof renderMatches === 'function') renderMatches();
-    }
-
-    if (typeof showTab === 'function') showTab('matches'); // Springt direkt zum Reiter "Spiele"
-    
     alert('🎉 3 Gruppen & der komplette Spielplan wurden erfolgreich erstellt!');
   }
 }
+
+// Quervergleich-fähige Tabellenberechnung (siehe Abschnitt 10)
 function drawKOPhase() {
-  if (!isAdmin()) return;
-  if (groups.length === 2) {
-    return alert('Du spielst im 2-Gruppen-Modus! Klicke direkt auf "Halbfinale auslosen".');
+  if (!hasElevated()) return;
+  if (groups.length !== 3) {
+    return alert('Diese Funktion ist für den 3-Gruppen-Modus vorgesehen. Bitte zuerst Gruppen auslosen.');
+  }
+  if (!groupMatches.every(m => m.played)) {
+    return alert('Es müssen zuerst alle Gruppenspiele eingetragen sein!');
   }
 
   const standings = calculateGroupStandings();
-  const qualified1st = [];
-  const qualified2nd = [];
+  const winners = standings.map(g => ({ ...g.rankings[0], group: g.letter }));
+  const runnerUps = standings.map(g => ({ ...g.rankings[1], group: g.letter }));
+  const thirds = standings
+    .map(g => ({ ...g.rankings[2], group: g.letter }))
+    .filter(r => r && r.teamId !== undefined)
+    .sort((a, b) => b.points - a.points || b.diff - a.diff || b.gf - a.gf)
+    .slice(0, 2);
 
-  standings.forEach(g => {
-    if (g.rankings.length >= 1) qualified1st.push({ ...g.rankings[0], group: g.letter });
-    if (g.rankings.length >= 2) qualified2nd.push({ ...g.rankings[1], group: g.letter });
+  if (winners.length < 3 || runnerUps.length < 3 || thirds.length < 2) {
+    return alert('Es sind nicht genügend qualifizierte Teams vorhanden!');
+  }
+
+  if (!confirm('Viertelfinale auslosen? (Gruppendritte spielen gegen Gruppensieger, keine Wiederholung aus der Gruppenphase)')) return;
+
+  let availableWinners = [...winners];
+  let availableRunnerUps = [...runnerUps];
+  const pairsArr = [];
+
+  // Schritt 1: beide Gruppendritte bekommen einen Gruppensieger (nicht aus eigener Gruppe)
+  thirds.forEach(third => {
+    let idx = availableWinners.findIndex(w => w.group !== third.group);
+    if (idx === -1) idx = 0;
+    const opponent = availableWinners.splice(idx, 1)[0];
+    pairsArr.push({ a: opponent, b: third });
   });
 
-  if (qualified1st.length < 4 || qualified2nd.length < 4) {
-    return alert('Es müssen in allen 4 Gruppen die Gruppenspiele beendet sein!');
-  }
+  // Schritt 2: übriger Gruppensieger vs. Gruppenzweiter (nicht aus eigener Gruppe)
+  const remWinner = availableWinners[0];
+  let idx2 = availableRunnerUps.findIndex(r => r.group !== remWinner.group);
+  if (idx2 === -1) idx2 = 0;
+  const oppRU = availableRunnerUps.splice(idx2, 1)[0];
+  pairsArr.push({ a: remWinner, b: oppRU });
 
-  if (confirm('Viertelfinale Über-Kreuz auslosen (keine Duelle aus gleicher Gruppe)?')) {
-    let available2nd = [...qualified2nd];
-    let paired2nd = [];
+  // Schritt 3: die beiden übrigen Gruppenzweiten spielen gegeneinander (unterschiedliche Gruppen, also kein Rematch)
+  pairsArr.push({ a: availableRunnerUps[0], b: availableRunnerUps[1] });
 
-    for (let i = 0; i < qualified1st.length; i++) {
-      let first = qualified1st[i];
-      let possibleOpponents = available2nd.filter(sec => sec.group !== first.group);
-      
-      if (possibleOpponents.length === 0) {
-        possibleOpponents = available2nd;
-      }
+  koMatches = [];
+  let matchId = 101;
+  pairsArr.forEach((p, i) => {
+    koMatches.push(makeKOMatch(matchId++, 'Viertelfinale', (i % 2 === 0) ? 'Hauptplatz' : 'Nebenplatz', p.a.teamId, p.b.teamId));
+  });
 
-      let chosen = possibleOpponents[Math.floor(Math.random() * possibleOpponents.length)];
-      paired2nd.push(chosen);
-      available2nd = available2nd.filter(sec => sec.teamId !== chosen.teamId);
-    }
-
-    koMatches = [];
-    let matchId = 101;
-
-    for (let i = 0; i < 4; i++) {
-      let court = (i % 2 === 0) ? 'Hauptplatz' : 'Nebenplatz';
-      koMatches.push({
-        id: matchId++,
-        round: 'Viertelfinale',
-        court: court,
-        t1Id: qualified1st[i].teamId,
-        t2Id: paired2nd[i].teamId,
-        score1: null,
-        score2: null,
-        played: false
-      });
-    }
-
-    saveData();
-    showTab('matches');
-  }
+  saveData();
+  showTab('matches');
 }
 
 function drawSemifinals() {
-  if (!isAdmin()) return;
-  const standings = calculateGroupStandings();
-
-  if (groups.length === 2) {
-    const groupA = standings.find(g => g.letter === 'Gruppe A');
-    const groupB = standings.find(g => g.letter === 'Gruppe B');
-
-    if (!groupA || !groupB || groupA.rankings.length < 2 || groupB.rankings.length < 2) {
-      return alert('Es müssen erst alle Gruppenspiele in Gruppe A und B beendet sein!');
-    }
-
-    if (confirm('Halbfinale Über-Kreuz anlegen? (A1 vs B2 & B1 vs A2)')) {
-      koMatches = [
-        {
-          id: 201, round: 'Halbfinale 1', court: 'Hauptplatz',
-          t1Id: groupA.rankings[0].teamId,
-          t2Id: groupB.rankings[1].teamId,
-          score1: null, score2: null, played: false
-        },
-        {
-          id: 202, round: 'Halbfinale 2', court: 'Nebenplatz',
-          t1Id: groupB.rankings[0].teamId,
-          t2Id: groupA.rankings[1].teamId,
-          score1: null, score2: null, played: false
-        }
-      ];
-
-      saveData();
-      showTab('matches');
-    }
-    return;
-  }
+  if (!hasElevated()) return;
 
   const qfMatches = koMatches.filter(m => m.round === 'Viertelfinale');
-  const winners = [];
+  if (qfMatches.length < 4) return alert('Es muss zuerst das Viertelfinale ausgelost werden!');
 
+  const winners = [];
   qfMatches.forEach(m => {
     if (m.played) {
       if (m.score1 > m.score2) winners.push(m.t1Id);
@@ -962,22 +922,13 @@ function drawSemifinals() {
     }
   });
 
-  if (winners.length < 4) return alert('Es müssen erst alle 4 Viertelfinal-Spiele beendet sein!');
+  if (winners.length < 4) return alert('Es müssen erst alle 4 Viertelfinal-Spiele eingetragen sein!');
 
   if (confirm('Halbfinale jetzt zufällig aus den 4 Siegern auslosen?')) {
-    const shuffledWinners = [...winners].sort(() => Math.random() - 0.5);
-    
-    koMatches.push({
-      id: 201, round: 'Halbfinale 1', court: 'Hauptplatz',
-      t1Id: shuffledWinners[0], t2Id: shuffledWinners[1],
-      score1: null, score2: null, played: false
-    });
+    const shuffled = [...winners].sort(() => Math.random() - 0.5);
 
-    koMatches.push({
-      id: 202, round: 'Halbfinale 2', court: 'Nebenplatz',
-      t1Id: shuffledWinners[2], t2Id: shuffledWinners[3],
-      score1: null, score2: null, played: false
-    });
+    koMatches.push(makeKOMatch(201, 'Halbfinale 1', 'Hauptplatz', shuffled[0], shuffled[1]));
+    koMatches.push(makeKOMatch(202, 'Halbfinale 2', 'Nebenplatz', shuffled[2], shuffled[3]));
 
     saveData();
     showTab('matches');
@@ -985,11 +936,11 @@ function drawSemifinals() {
 }
 
 function drawFinals() {
-  if (!isAdmin()) return;
+  if (!hasElevated()) return;
   const hf1 = koMatches.find(m => m.round === 'Halbfinale 1');
   const hf2 = koMatches.find(m => m.round === 'Halbfinale 2');
 
-  if (!hf1 || !hf2 || !hf1.played || !hf2.played) return alert('Beide Halbfinal-Spiele müssen erst beendet sein!');
+  if (!hf1 || !hf2 || !hf1.played || !hf2.played) return alert('Beide Halbfinal-Spiele müssen erst eingetragen sein!');
 
   const hf1Winner = hf1.score1 > hf1.score2 ? hf1.t1Id : hf1.t2Id;
   const hf1Loser  = hf1.score1 > hf1.score2 ? hf1.t2Id : hf1.t1Id;
@@ -997,15 +948,8 @@ function drawFinals() {
   const hf2Loser  = hf2.score1 > hf2.score2 ? hf2.t2Id : hf2.t1Id;
 
   if (confirm('Finale & Spiel um Platz 3 jetzt erstellen?')) {
-    koMatches.push({
-      id: 301, round: '🥉 Spiel um Platz 3', court: 'Nebenplatz',
-      t1Id: hf1Loser, t2Id: hf2Loser, score1: null, score2: null, played: false
-    });
-
-    koMatches.push({
-      id: 302, round: '🏆 FINALE', court: 'Hauptplatz',
-      t1Id: hf1Winner, t2Id: hf2Winner, score1: null, score2: null, played: false
-    });
+    koMatches.push(makeKOMatch(301, '🥉 Spiel um Platz 3', 'Nebenplatz', hf1Loser, hf2Loser));
+    koMatches.push(makeKOMatch(302, '🏆 FINALE', 'Hauptplatz', hf1Winner, hf2Winner));
 
     saveData();
     showTab('matches');
@@ -1013,29 +957,31 @@ function drawFinals() {
 }
 
 function resetTournament() {
-  if (!isAdmin()) return;
-  if (confirm('Turnier wirklich zurücksetzen? Alle Teams und Ergebnisse werden gelöscht!')) {
+  if (!hasElevated()) return;
+  if (confirm('Turnier wirklich zurücksetzen? Alle Teams, Spieler, Ergebnisse und Coins werden gelöscht!')) {
     players = [];
     teams = [];
     groups = [];
     groupMatches = [];
     koMatches = [];
     tips = {};
-    draftState = { active: false, pairs: [], currentIndex: 0, remainingClubs: [], spinning: false, startTime: null, targetAngle: 0, duration: 4000, lastDrawnClub: null };
-    userBalances = {}; // Setzt alle Kontostände zurück (jeder startet wieder bei 100)
-    bets = [];         // Löscht alle aktiven Wetten
+    tipsEvaluated = false;
+    registrationLocked = false;
+    draftState = { active: false, currentStep: 0, tempP1: null, tempP2: null, remainingPlayers: [], remainingClubs: [], spinning: false, startTime: null, targetAngle: 0, duration: 4000, lastDrawnItem: null, pairs: [] };
+    userBalances = {};
+    bets = [];
     saveData();
   }
 }
 
-// 9. Match & Team Updates
+// 9. Team- & Match-Updates
 function updateTeamName(teamId, newName) {
   const team = teams.find(t => t.id === teamId);
   if (!team) return;
 
   const isMyTeam = (myPlayerName && (team.p1 === myPlayerName || team.p2 === myPlayerName));
-  
-  if (canManageMatches() || isMyTeam) {
+
+  if (hasElevated() || isMyTeam) {
     team.name = newName.trim() || `Team ${team.id}`;
     saveData();
   } else {
@@ -1044,89 +990,100 @@ function updateTeamName(teamId, newName) {
   }
 }
 
-function updateMatchScore(matchId, isKO) {
-  const matchArray = isKO ? koMatches : groupMatches;
+function getMatchArray(isKO) { return isKO ? koMatches : groupMatches; }
+
+// Spieler tragen ihr eigenes Ergebnis ein -> "vorläufig". Admin/Ref bestätigt separat.
+function submitMatchResult(matchId, isKO) {
+  const matchArray = getMatchArray(isKO);
   const match = matchArray.find(m => m.id === matchId);
   if (!match) return;
 
-  if (match.betsEvaluated) {
-    alert('Dieses Spiel wurde bereits bestätigt und ausgezahlt. Der Spielstand ist gesperrt!');
-    return;
-  }
-
   const myTeam = getMyTeam();
-  const canEdit = canManageMatches() || (myTeam && (match.t1Id === myTeam.id || match.t2Id === myTeam.id));
-
+  const canEdit = hasElevated() || (myTeam && (match.t1Id === myTeam.id || match.t2Id === myTeam.id));
   if (!canEdit) {
     alert('Du darfst nur Ergebnisse eintragen, bei denen dein Team mitspielt!');
-    renderAll();
+    return;
+  }
+  if (match.confirmed && !hasElevated()) {
+    alert('Dieses Ergebnis wurde bereits vom Admin bestätigt und ist gesperrt!');
     return;
   }
 
-  // 1. Werte aus den 4 Hin- & Rückspiel-Feldern holen
-  const h1El = document.getElementById(`m_${matchId}_h1`);
-  const h2El = document.getElementById(`m_${matchId}_h2`);
-  const r1El = document.getElementById(`m_${matchId}_r1`);
-  const r2El = document.getElementById(`m_${matchId}_r2`);
+  const h1El = document.getElementById(`m_${matchId}_${isKO ? 'ko_' : ''}h1`);
+  const h2El = document.getElementById(`m_${matchId}_${isKO ? 'ko_' : ''}h2`);
+  const r1El = document.getElementById(`m_${matchId}_${isKO ? 'ko_' : ''}r1`);
+  const r2El = document.getElementById(`m_${matchId}_${isKO ? 'ko_' : ''}r2`);
 
-  // Falls es ein einfaches KO-Spiel ohne Hin/Rückspiel ist, Fallback auf Standard-Inputs
-  const h1 = h1El ? h1El.value : (document.getElementById(`m_${matchId}_1`)?.value || '');
-  const h2 = h2El ? h2El.value : (document.getElementById(`m_${matchId}_2`)?.value || '');
+  const h1 = h1El ? h1El.value : '';
+  const h2 = h2El ? h2El.value : '';
   const r1 = r1El ? r1El.value : '';
   const r2 = r2El ? r2El.value : '';
 
-  // 2. Zurücksetzen, wenn Felder leer sind
-  if (h1 === '' || h2 === '') {
-    match.score1_h = null; match.score2_h = null;
-    match.score1_r = null; match.score2_r = null;
-    match.score1 = null;   match.score2 = null;
-    match.played = false;
-  } else {
-    const s1_h = parseInt(h1, 10);
-    const s2_h = parseInt(h2, 10);
-    const s1_r = r1 !== '' ? parseInt(r1, 10) : 0;
-    const s2_r = r2 !== '' ? parseInt(r2, 10) : 0;
-
-    // Speichern der Einzel-Ergebnisse (Gelb vs. Blau)
-    match.score1_h = s1_h; match.score2_h = s2_h;
-    match.score1_r = r1 !== '' ? s1_r : null; 
-    match.score2_r = r2 !== '' ? s2_r : null;
-
-    // Gesamttore berechnen
-    const totalS1 = s1_h + s1_r;
-    const totalS2 = s2_h + s2_r;
-
-    if (isKO && totalS1 === totalS2) {
-      return alert('In der KO-Phase muss es nach Hin- und Rückspiel einen Gesamtsieger geben!');
+  if (h1 === '' || h2 === '' || r1 === '' || r2 === '') {
+    if (hasElevated()) {
+      match.score1_h = null; match.score2_h = null;
+      match.score1_r = null; match.score2_r = null;
+      match.score1 = null; match.score2 = null;
+      match.played = false;
+      saveData();
+      renderAll();
+    } else {
+      alert('Bitte alle 4 Ergebnis-Felder (Hin- & Rückspiel) ausfüllen!');
     }
+    return;
+  }
 
-    match.score1 = totalS1;
-    match.score2 = totalS2;
-    match.played = true;
+  const s1h = parseInt(h1, 10), s2h = parseInt(h2, 10);
+  const s1r = parseInt(r1, 10), s2r = parseInt(r2, 10);
 
-    // 3. Wetten automatisch auswerten (bei Gesamtsieger)
-    if (totalS1 !== totalS2 && typeof evaluateBetsForMatch === 'function' && canManageMatches()) {
-      const winningTeamId = totalS1 > totalS2 ? match.t1Id : match.t2Id;
-      evaluateBetsForMatch(matchId, winningTeamId);
-    }
+  const total1 = s1h + s1r;
+  const total2 = s2h + s2r;
 
-    // 4. Siegerehrung bei Final-Sieg
-    if (match.round === '🏆 FINALE' || match.round === 'Finale') {
-      const winnerTeamId = totalS1 > totalS2 ? match.t1Id : match.t2Id;
-      const winnerTeam = teams.find(t => t.id === winnerTeamId);
+  if (isKO && total1 === total2) {
+    return alert('In der KO-Phase muss es nach Hin- und Rückspiel einen Gesamtsieger geben!');
+  }
 
+  match.score1_h = s1h; match.score2_h = s2h;
+  match.score1_r = s1r; match.score2_r = s2r;
+  match.score1 = total1; match.score2 = total2;
+  match.played = true;
+
+  saveData();
+  renderAll();
+  alert(match.confirmed ? '✅ Ergebnis korrigiert (Tabelle aktualisiert).' : '✅ Ergebnis vorläufig gespeichert. Ein Admin/Ref muss es noch bestätigen.');
+}
+
+// Admin/Ref bestätigt ein Ergebnis endgültig -> Wetten werden ausgezahlt
+function confirmMatchResult(matchId, isKO) {
+  if (!hasElevated()) return;
+  const matchArray = getMatchArray(isKO);
+  const match = matchArray.find(m => m.id === matchId);
+  if (!match) return;
+  if (!match.played) return alert('Es wurde noch kein Ergebnis eingetragen!');
+  if (match.confirmed) return;
+
+  match.confirmed = true;
+
+  const winningTeamId = match.score1 > match.score2 ? match.t1Id : (match.score2 > match.score1 ? match.t2Id : null);
+  if (winningTeamId) {
+    evaluateBetsForMatch(matchId, isKO, winningTeamId);
+
+    if (isKO && match.round === '🏆 FINALE') {
+      evaluateTips(winningTeamId);
+      const winnerTeam = teams.find(t => t.id === winningTeamId);
       if (winnerTeam) {
         setTimeout(() => {
           alert(`🎉 🏆 DIE SIEGER DES FAL FIFA TURNIERS SIND: 🏆 🎉\n\n🥇 ${winnerTeam.p1} & ${winnerTeam.p2} (${winnerTeam.name} - ${winnerTeam.club || ''}) 🥇\n\nHerzlichen Glückwunsch! 👏🥳`);
         }, 300);
       }
     }
+  } else {
+    saveData();
   }
 
-  saveData();
   renderAll();
-  alert('✅ Ergebnisse gespeichert & Wettauszahlung aktualisiert!');
 }
+
 // 10. Render Panel & UI
 function renderAll() {
   renderHome();
@@ -1148,7 +1105,7 @@ function renderRules() {
   const container = document.getElementById('rules-content');
   if (!container) return;
 
-  if (isAdmin()) {
+  if (hasElevated()) {
     const currentText = (rules === DEFAULT_RULES) ? '' : rules;
     container.innerHTML = `
       <textarea id="rules-textarea" rows="6" style="width:100%;" placeholder="Regeln hier eintragen...">${currentText}</textarea>
@@ -1160,13 +1117,14 @@ function renderRules() {
 }
 
 function saveRules() {
-  if (!isAdmin()) return;
+  if (!hasElevated()) return;
   const textarea = document.getElementById('rules-textarea');
   if (!textarea) return;
   rules = textarea.value.trim() || DEFAULT_RULES;
   saveData();
 }
 
+// 10b. TIPPSPIEL (mit FAL-Coins, Quote = Anzahl Teams : 1, einmalig & fix)
 function renderTipRound() {
   const container = document.getElementById('tip-content');
   if (!container) return;
@@ -1176,59 +1134,128 @@ function renderTipRound() {
     return;
   }
 
-  const totalTips = Object.keys(tips).length;
-  const myTip = myPlayerName ? tips[myPlayerName] : null;
+  if (!myPlayerName) {
+    container.innerHTML = '<p class="empty-state">Melde dich als Spieler an, um mitzutippen.</p>';
+    return;
+  }
 
-  const rows = teams.map(t => {
-    const count = Object.values(tips).filter(id => id === t.id).length;
-    const pct = totalTips > 0 ? Math.round((count / totalTips) * 100) : 0;
-    const isMine = myTip === t.id;
-    const label = `${t.name}${t.club ? ' (' + t.club + ')' : ''}`;
+  const myTip = tips[myPlayerName];
+  const odds = teams.length;
+  const finished = isTournamentFinished();
 
-    return `
-      <div class="tip-row">
-        <button class="btn-secondary tip-btn ${isMine ? 'highlight-me' : ''}"
-                ${myPlayerName ? `onclick="submitTip(${t.id})"` : 'disabled'}>
-          <span>${isMine ? '✅ ' : ''}${label}</span>
-          <span style="color:var(--fal-yellow); font-weight:bold;">${pct}% (${count})</span>
-        </button>
-        <div class="tip-bar-track">
-          <div class="tip-bar-fill" style="width:${pct}%;"></div>
-        </div>
+  if (myTip) {
+    const tipTeam = teams.find(t => t.id === myTip.teamId);
+    container.innerHTML = `
+      <div class="bet-card">
+        ✅ Du hast <strong>${myTip.amount} 🪙</strong> auf <strong>${tipTeam ? tipTeam.name : '???'}</strong>${tipTeam && tipTeam.club ? ' (' + tipTeam.club + ')' : ''} gesetzt.
+        <div style="font-size:0.85em; opacity:0.75; margin-top:6px;">Quote ${odds}:1 – dein Tipp ist fix und kann nicht mehr geändert werden.</div>
       </div>
+      ${finished ? renderTipResultsBreakdown() : '<p style="font-size:0.85em; opacity:0.7;">Die Tipps der anderen werden erst nach dem Finale sichtbar.</p>'}
     `;
-  }).join('');
+    return;
+  }
+
+  const currentBalance = getUserBalance(myPlayerName);
+  const options = teams.map(t => `<option value="${t.id}">${t.name}${t.club ? ' (' + t.club + ')' : ''}</option>`).join('');
 
   container.innerHTML = `
-    ${!myPlayerName ? '<p class="empty-state">Melde dich als Spieler an, um mitzutippen.</p>' : ''}
-    ${rows}
-    <p style="font-size:0.8em; opacity:0.7; margin-top:4px;">${totalTips} von ${players.length} Spielern haben getippt.</p>
+    <div class="bet-card">
+      <div style="font-size:0.9em; margin-bottom:6px;">Aktuelle Quote: <strong style="color:var(--fal-yellow);">${odds}:1</strong> (bei ${teams.length} Teams)</div>
+      <div class="bet-input-row">
+        <select id="tip-team-select">${options}</select>
+        <input type="number" id="tip-amount-input" placeholder="Coins" min="1" max="${currentBalance}">
+        <button class="btn-primary" onclick="submitTip()">Tipp abgeben</button>
+      </div>
+      <div style="font-size:0.8em; opacity:0.7; margin-top:6px;">Dein Kontostand: ${currentBalance} 🪙 — Achtung: Der Tipp kann danach nicht mehr geändert werden!</div>
+    </div>
   `;
 }
 
-function submitTip(teamId) {
+function renderTipResultsBreakdown() {
+  const totalTips = Object.keys(tips).length;
+  const rows = teams.map(t => {
+    const count = Object.values(tips).filter(tip => tip.teamId === t.id).length;
+    const pct = totalTips > 0 ? Math.round((count / totalTips) * 100) : 0;
+    return `
+      <div class="tip-row">
+        <div class="tip-btn"><span>${t.name}</span><span style="color:var(--fal-yellow); font-weight:bold;">${pct}% (${count})</span></div>
+        <div class="tip-bar-track"><div class="tip-bar-fill" style="width:${pct}%;"></div></div>
+      </div>
+    `;
+  }).join('');
+  return `<div style="margin-top:12px;">${rows}<p style="font-size:0.8em; opacity:0.7;">${totalTips} von ${players.length} Spielern haben getippt.</p></div>`;
+}
+
+function submitTip() {
   if (!myPlayerName) return;
-  tips[myPlayerName] = teamId;
+  if (tips[myPlayerName]) return alert('Du hast bereits getippt – das kann nicht mehr geändert werden.');
+
+  const teamSelect = document.getElementById('tip-team-select');
+  const amountInput = document.getElementById('tip-amount-input');
+  if (!teamSelect || !amountInput) return;
+
+  const teamId = parseInt(teamSelect.value);
+  const amount = parseInt(amountInput.value);
+  const currentBalance = getUserBalance(myPlayerName);
+
+  if (isNaN(amount) || amount <= 0) return alert('Bitte einen gültigen Betrag eingeben!');
+  if (amount > currentBalance) return alert('Du hast nicht genügend FAL-Coins!');
+
+  if (!confirm(`Sicher? Du setzt ${amount} Coins fest auf dieses Team – das lässt sich NICHT mehr ändern.`)) return;
+
+  userBalances[myPlayerName] -= amount;
+  tips[myPlayerName] = { teamId, amount };
+
   saveData();
 }
 
-function calculateTeamStats() {
-  const stats = {};
-  teams.forEach(t => {
-    stats[t.id] = { team: t, goals: 0, wins: 0, played: 0 };
+function evaluateTips(winningTeamId) {
+  if (tipsEvaluated) return;
+  const odds = teams.length || 1;
+
+  Object.keys(tips).forEach(playerName => {
+    const tip = tips[playerName];
+    if (tip.teamId === winningTeamId) {
+      const winAmount = tip.amount * odds;
+      userBalances[playerName] = (userBalances[playerName] || 0) + winAmount;
+    }
   });
 
-  [...groupMatches, ...koMatches].filter(m => m.played).forEach(m => {
-    if (stats[m.t1Id]) {
-      stats[m.t1Id].goals += m.score1;
-      stats[m.t1Id].played++;
-      if (m.score1 > m.score2) stats[m.t1Id].wins++;
-    }
-    if (stats[m.t2Id]) {
-      stats[m.t2Id].goals += m.score2;
-      stats[m.t2Id].played++;
-      if (m.score2 > m.score1) stats[m.t2Id].wins++;
-    }
+  tipsEvaluated = true;
+  saveData();
+}
+
+// 10c. DASHBOARD (Einzelspieler-Statistiken)
+function calculatePlayerStats() {
+  const stats = {};
+  function ensure(name) {
+    if (!stats[name]) stats[name] = { name, goals: 0, conceded: 0, wins: 0, played: 0 };
+    return stats[name];
+  }
+
+  function processLeg(m, isHin) {
+    const s1 = isHin ? m.score1_h : m.score1_r;
+    const s2 = isHin ? m.score2_h : m.score2_r;
+    if (s1 === null || s1 === undefined || s2 === null || s2 === undefined) return;
+
+    const t1 = teams.find(t => t.id === m.t1Id);
+    const t2 = teams.find(t => t.id === m.t2Id);
+    if (!t1 || !t2) return;
+
+    const playerA = isHin ? t1.p1 : t1.p2;
+    const playerB = isHin ? (m.crossed ? t2.p2 : t2.p1) : (m.crossed ? t2.p1 : t2.p2);
+
+    const a = ensure(playerA);
+    const b = ensure(playerB);
+    a.goals += s1; a.conceded += s2; a.played++;
+    b.goals += s2; b.conceded += s1; b.played++;
+    if (s1 > s2) a.wins++;
+    else if (s2 > s1) b.wins++;
+  }
+
+  [...groupMatches, ...koMatches].forEach(m => {
+    processLeg(m, true);
+    processLeg(m, false);
   });
 
   return Object.values(stats);
@@ -1243,31 +1270,40 @@ function renderDashboard() {
     return;
   }
 
-  const stats = calculateTeamStats();
+  const stats = calculatePlayerStats();
   const played = stats.filter(s => s.played > 0);
 
-  const topScorer = [...stats].sort((a, b) => b.goals - a.goals)[0];
-  const topWinner = played.length > 0
-    ? [...played].sort((a, b) => (b.wins / b.played) - (a.wins / a.played) || b.wins - a.wins)[0]
-    : null;
+  const topScorer = played.length ? [...played].sort((a, b) => b.goals - a.goals)[0] : null;
+  const bestDefender = played.length ? [...played].sort((a, b) => (a.conceded / a.played) - (b.conceded / b.played))[0] : null;
+  const topWinner = played.length ? [...played].sort((a, b) => (b.wins / b.played) - (a.wins / a.played) || b.wins - a.wins)[0] : null;
 
-  const tipCounts = teams.map(t => ({ team: t, count: Object.values(tips).filter(id => id === t.id).length }));
-  const favorite = [...tipCounts].sort((a, b) => b.count - a.count)[0];
+  let favoriteTile = '';
+  if (isTournamentFinished()) {
+    const tipCounts = teams.map(t => ({ team: t, count: Object.values(tips).filter(tip => tip.teamId === t.id).length }));
+    const favorite = [...tipCounts].sort((a, b) => b.count - a.count)[0];
+    favoriteTile = `
+      <div class="admin-card stat-tile">
+        <p class="stat-label">🐐 Fan-Liebling (Tippspiel)</p>
+        <p class="stat-value">${favorite && favorite.count > 0 ? `${favorite.team.name} (${favorite.count} Tipps)` : 'Keine Tipps'}</p>
+      </div>
+    `;
+  }
 
   container.innerHTML = `
     <div class="grid-container">
       <div class="admin-card stat-tile">
-        <p class="stat-label">⚽ Torjäger-Team</p>
-        <p class="stat-value">${topScorer && topScorer.goals > 0 ? `${topScorer.team.name} (${topScorer.goals} Tore)` : 'Noch keine Tore'}</p>
+        <p class="stat-label">⚽ Torschützenkönig</p>
+        <p class="stat-value">${topScorer && topScorer.goals > 0 ? `${topScorer.name} (${topScorer.goals} Tore)` : 'Noch keine Tore'}</p>
       </div>
       <div class="admin-card stat-tile">
-        <p class="stat-label">🔥 Beste Siegquote</p>
-        <p class="stat-value">${topWinner ? `${topWinner.team.name} (${topWinner.wins}/${topWinner.played} Siege)` : 'Noch keine Spiele'}</p>
+        <p class="stat-label">🛡️ Beste Abwehr</p>
+        <p class="stat-value">${bestDefender ? `${bestDefender.name} (Ø ${(bestDefender.conceded / bestDefender.played).toFixed(1)} Gegentore)` : 'Noch keine Spiele'}</p>
       </div>
       <div class="admin-card stat-tile">
-        <p class="stat-label">🐐 Fan-Liebling</p>
-        <p class="stat-value">${favorite && favorite.count > 0 ? `${favorite.team.name} (${favorite.count} Tipps)` : 'Noch keine Tipps'}</p>
+        <p class="stat-label">🔥 Höchste Siegquote</p>
+        <p class="stat-value">${topWinner ? `${topWinner.name} (${topWinner.wins}/${topWinner.played} Siege)` : 'Noch keine Spiele'}</p>
       </div>
+      ${favoriteTile}
     </div>
   `;
 }
@@ -1283,14 +1319,14 @@ function renderTeams() {
 
   container.innerHTML = teams.map(t => {
     const isMyTeam = (myPlayerName && (t.p1 === myPlayerName || t.p2 === myPlayerName));
-    const canEditName = canManageMatches() || isMyTeam;
+    const canEditName = hasElevated() || isMyTeam;
     const clubBadgeHtml = t.club ? `<div class="club-badge">⚽ ${t.club}</div>` : '';
 
     return `
       <div class="admin-card ${isMyTeam ? 'highlight-me' : ''}">
         <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap;">
-          <input type="text" value="${t.name}" 
-                 ${canEditName ? '' : 'disabled'} 
+          <input type="text" value="${t.name}"
+                 ${canEditName ? '' : 'disabled'}
                  onchange="updateTeamName(${t.id}, this.value)"
                  style="font-weight: bold; font-size: 1.1em; max-width: 180px;">
           ${clubBadgeHtml}
@@ -1302,7 +1338,7 @@ function renderTeams() {
   }).join('');
 }
 
-// 2a. GRUPPENTABELLEN BERECHNUNG (Aggregat aus Hin- & Rückspiel berücksichtigen)
+// GRUPPENTABELLEN BERECHNUNG (Aggregat aus Hin- & Rückspiel)
 function calculateGroupStandings() {
   return groups.map(g => {
     const stats = {};
@@ -1313,40 +1349,21 @@ function calculateGroupStandings() {
       stats[tId] = { teamId: tId, name: displayName, played: 0, gf: 0, ga: 0, diff: 0, points: 0 };
     });
 
-    // Gruppiere Spiele paarweise nach Duellen (Hin- und Rückspiel zusammenrechnen)
-    const matchPairs = {};
-    groupMatches.filter(m => m.group === g.letter).forEach(m => {
-      const pairKey = [m.t1Id, m.t2Id].sort().join('-_');
-      if (!matchPairs[pairKey]) matchPairs[pairKey] = [];
-      matchPairs[pairKey].push(m);
-    });
+    groupMatches.filter(m => m.group === g.letter && m.played).forEach(m => {
+      const t1 = stats[m.t1Id];
+      const t2 = stats[m.t2Id];
+      if (!t1 || !t2) return;
 
-    Object.values(matchPairs).forEach(pair => {
-      const leg1 = pair[0];
-      const leg2 = pair[1];
+      t1.played++; t2.played++;
+      t1.gf += m.score1; t1.ga += m.score2;
+      t2.gf += m.score2; t2.ga += m.score1;
 
-      if (leg1 && leg2 && leg1.played && leg2.played) {
-        const t1 = stats[leg1.t1Id];
-        const t2 = stats[leg1.t2Id];
+      if (m.score1 > m.score2) t1.points += 3;
+      else if (m.score2 > m.score1) t2.points += 3;
+      else { t1.points += 1; t2.points += 1; }
 
-        if (t1 && t2) {
-          t1.played += 2;
-          t2.played += 2;
-
-          const totalScore1 = leg1.score1 + leg2.score1;
-          const totalScore2 = leg1.score2 + leg2.score2;
-
-          t1.gf += totalScore1; t1.ga += totalScore2;
-          t2.gf += totalScore2; t2.ga += totalScore1;
-
-          if (totalScore1 > totalScore2) t1.points += 3;
-          else if (totalScore2 > totalScore1) t2.points += 3;
-          else { t1.points += 1; t2.points += 1; }
-
-          t1.diff = t1.gf - t1.ga;
-          t2.diff = t2.gf - t2.ga;
-        }
-      }
+      t1.diff = t1.gf - t1.ga;
+      t2.diff = t2.gf - t2.ga;
     });
 
     const rankings = Object.values(stats).sort((a, b) => b.points - a.points || b.diff - a.diff || b.gf - a.gf);
@@ -1354,7 +1371,6 @@ function calculateGroupStandings() {
   });
 }
 
-// 2b. RENDERING DER GRUPPEN & DER BERECHNUNG DER BESTEN DRITTEN
 function renderGroups() {
   const container = document.getElementById('groups-container');
   if (!container) return;
@@ -1372,18 +1388,11 @@ function renderGroups() {
       <div class="table-container">
         <table>
           <thead>
-            <tr>
-              <th>#</th>
-              <th>Team</th>
-              <th>Sp</th>
-              <th>Tore</th>
-              <th>Diff</th>
-              <th>Pkt</th>
-            </tr>
+            <tr><th>#</th><th>Team</th><th>Sp</th><th>Tore</th><th>Diff</th><th>Pkt</th></tr>
           </thead>
           <tbody>
             ${g.rankings.map((r, idx) => `
-              <tr style="${idx === 2 && groups.length === 3 ? 'opacity: 0.9;' : ''}">
+              <tr style="${idx === 2 ? 'opacity: 0.9;' : ''}">
                 <td>${idx + 1}</td>
                 <td><strong>${r.name}</strong></td>
                 <td>${r.played}</td>
@@ -1398,11 +1407,10 @@ function renderGroups() {
     </div>
   `).join('');
 
-  // Spezial-Tabelle: Quervergleich der besten Gruppendritten bei genau 3 Gruppen
   if (groups.length === 3) {
     const thirdPlaces = standings
       .map(g => ({ ...g.rankings[2], group: g.letter }))
-      .filter(r => r !== undefined)
+      .filter(r => r !== undefined && r.teamId !== undefined)
       .sort((a, b) => b.points - a.points || b.diff - a.diff || b.gf - a.gf);
 
     html += `
@@ -1410,17 +1418,7 @@ function renderGroups() {
         <h3 style="color:var(--fal-yellow); margin-top:0;">📊 Quervergleich der Gruppendritten (Top 2 kommen ins Viertelfinale)</h3>
         <div class="table-container">
           <table>
-            <thead>
-              <tr>
-                <th>Platz</th>
-                <th>Team (Gruppe)</th>
-                <th>Sp</th>
-                <th>Tore</th>
-                <th>Diff</th>
-                <th>Pkt</th>
-                <th>Status</th>
-              </tr>
-            </thead>
+            <thead><tr><th>Platz</th><th>Team (Gruppe)</th><th>Sp</th><th>Tore</th><th>Diff</th><th>Pkt</th><th>Status</th></tr></thead>
             <tbody>
               ${thirdPlaces.map((r, idx) => `
                 <tr style="${idx < 2 ? 'background: rgba(0, 255, 100, 0.1);' : 'background: rgba(255, 0, 0, 0.1);'}">
@@ -1430,7 +1428,7 @@ function renderGroups() {
                   <td>${r.gf}:${r.ga}</td>
                   <td>${r.diff > 0 ? '+' + r.diff : r.diff}</td>
                   <td><strong>${r.points}</strong></td>
-                  <td>${idx < 2 ? '✅ Qualifiziert' : '❌ Ausschieden'}</td>
+                  <td>${idx < 2 ? '✅ Qualifiziert' : '❌ Ausgeschieden'}</td>
                 </tr>
               `).join('')}
             </tbody>
@@ -1442,174 +1440,120 @@ function renderGroups() {
 
   container.innerHTML = html;
 }
-function renderMatches() {
-  const container = document.getElementById('matches-list'); // oder deine Container-ID
-  if (!container) return;
 
-  if (!groupMatches || groupMatches.length === 0) {
-    container.innerHTML = '<p style="text-align:center; opacity:0.7;">Noch keine Spiele generiert. Bitte zuerst Gruppen auslosen.</p>';
-    return;
-  }
+// SPIELE: gemeinsame Karten-Darstellung für Gruppen- & KO-Spiele
+function renderMatchBlock(m, isKO) {
+  const t1 = teams.find(t => t.id === m.t1Id) || { name: 'Team ?', p1: 'P1', p2: 'P2', club: '' };
+  const t2 = teams.find(t => t.id === m.t2Id) || { name: 'Team ?', p1: 'P1', p2: 'P2', club: '' };
 
-  let html = '';
+  const hinP2 = m.crossed ? t2.p2 : t2.p1;
+  const rueckP2 = m.crossed ? t2.p1 : t2.p2;
 
-  groupMatches.forEach((m, idx) => {
-    const t1 = teams.find(t => t.id === m.t1Id) || { name: 'Team ?', p1: 'P1', p2: 'P2', club: '' };
-    const t2 = teams.find(t => t.id === m.t2Id) || { name: 'Team ?', p1: 'P1', p2: 'P2', club: '' };
+  const myTeam = getMyTeam();
+  const canEdit = hasElevated() || (myTeam && (m.t1Id === myTeam.id || m.t2Id === myTeam.id));
+  const locked = m.confirmed && !hasElevated();
 
-    // 1. DYNAMISCHE PLATZ-ZUWEISUNG (Parallele Slots)
-    // Spiele werden paarweise auf Hauptplatz (gerade Indizes) & Nebenplatz (ungerade) gelegt
-    let courtName = 'Hauptplatz';
-    if (idx % 2 === 1 && idx < groupMatches.length - (groupMatches.length % 2)) {
-      courtName = 'Nebenplatz';
-    }
-    m.court = courtName; // Für Speicherung sichern
+  let statusBadge = '<span class="status-badge status-open">❌ Offen</span>';
+  if (m.betsEvaluated) statusBadge = '<span class="status-badge status-confirmed">🔒 Bestätigt & Ausgezahlt</span>';
+  else if (m.confirmed) statusBadge = '<span class="status-badge status-confirmed">✅ Bestätigt</span>';
+  else if (m.played) statusBadge = '<span class="status-badge status-provisional">⏳ Vorläufig</span>';
 
-    // 2. FARBLICHE DUEL-LOGIK (Gelb vs. Blau)
-    // Hinspiel = Gelb (P1 vs P1) | Rückspiel = Blau (P2 vs P2)
-    const hinLegColor = 'border-left: 5px solid #f1c40f; background: rgba(241, 196, 15, 0.1);';
-    const rueckLegColor = 'border-left: 5px solid #3498db; background: rgba(52, 152, 219, 0.1);';
+  const prefix = `m_${m.id}_${isKO ? 'ko_' : ''}`;
+  const courtColor = m.court === 'Hauptplatz' ? '#e74c3c' : '#2ecc71';
+  const roundLabel = isKO ? m.round : `Runde ${m.slot || ''} • ${m.group}`;
 
-    html += `
-      <div class="match-card" style="background:#1e3e62; margin-bottom:15px; padding:15px; border-radius:8px; position:relative;">
-        
-        <!-- Header: Runde, Gruppe & Platz Badge -->
-        <div style="display:flex; justify-content: space-between; align-items:center; margin-bottom:10px;">
-          <span style="color:var(--fal-yellow); font-weight:bold;">Runde ${m.slot || idx + 1} • ${m.group}</span>
-          <span class="badge" style="background:${courtName === 'Hauptplatz' ? '#e74c3c' : '#2ecc71'}; color:white; padding:3px 8px; border-radius:4px; font-size:0.8em; font-weight:bold;">
-            ${courtName}
-          </span>
-        </div>
-
-        <!-- Paarung Head-to-Head -->
-        <div style="margin-bottom:12px;">
-          <div style="font-size:1.05em; font-weight:bold;">
-            ${t1.name} <small style="opacity:0.8;">(${t1.p1} & ${t1.p2})</small> <span style="color:#f1c40f;">[${t1.club}]</span>
-          </div>
-          <div style="font-size:0.8em; opacity:0.6; margin:2px 0;">vs</div>
-          <div style="font-size:1.05em; font-weight:bold;">
-            ${t2.name} <small style="opacity:0.8;">(${t2.p1} & ${t2.p2})</small> <span style="color:#f1c40f;">[${t2.club}]</span>
-          </div>
-        </div>
-
-        <!-- ERGEBNIS-EINGABEN (Hin- & Rückspiel) -->
-        <div style="display:flex; flex-direction:column; gap:8px;">
-          
-          <!-- HINSPIEL (Gelb: P1 vs P1) -->
-          <div style="padding:8px; border-radius:5px; ${hinLegColor}; display:flex; align-items:center; justify-content:space-between;">
-            <span style="font-size:0.85em;">🟡 <strong>Hinspiel:</strong> ${t1.p1} vs. ${t2.p1}</span>
-            <div style="display:flex; gap:5px; align-items:center;">
-              <input type="number" id="m_${m.id}_h1" min="0" max="20" style="width:40px; text-align:center;" value="${m.score1_h !== null && m.score1_h !== undefined ? m.score1_h : ''}">
-              :
-              <input type="number" id="m_${m.id}_h2" min="0" max="20" style="width:40px; text-align:center;" value="${m.score2_h !== null && m.score2_h !== undefined ? m.score2_h : ''}">
-            </div>
-          </div>
-
-          <!-- RÜCKSPIEL (Blau: P2 vs P2) -->
-          <div style="padding:8px; border-radius:5px; ${rueckLegColor}; display:flex; align-items:center; justify-content:space-between;">
-            <span style="font-size:0.85em;">🔵 <strong>Rückspiel:</strong> ${t1.p2} vs. ${t2.p2}</span>
-            <div style="display:flex; gap:5px; align-items:center;">
-              <input type="number" id="m_${m.id}_r1" min="0" max="20" style="width:40px; text-align:center;" value="${m.score1_r !== null && m.score1_r !== undefined ? m.score1_r : ''}">
-              :
-              <input type="number" id="m_${m.id}_r2" min="0" max="20" style="width:40px; text-align:center;" value="${m.score2_r !== null && m.score2_r !== undefined ? m.score2_r : ''}">
-            </div>
-          </div>
-
-        </div>
-
-        <!-- NEU: Ruft updateMatchScore auf und übergibt die Spiel-ID & 'false' (weil Gruppenspiel) -->
-        ${isAdmin() ? `
-          <button class="btn-primary" style="margin-top:10px; width:100%; padding:8px; font-weight:bold;" onclick="updateMatchScore(${m.id}, false)">
-            💾 Ergebnisse speichern
-          </button>
-        ` : ''}
-
-      </div>
-    `;
-  });
-
-  container.innerHTML = html;
-}
-// 1. MATCH-CARD RENDERING (Hin- & Rückspiel Support)
-function renderMatchCard(m, isKO, myTeam) {
-  const t1 = teams.find(t => t.id === m.t1Id);
-  const t2 = teams.find(t => t.id === m.t2Id);
-  const canEdit = canManageMatches() || (myTeam && (m.t1Id === myTeam.id || m.t2Id === myTeam.id));
-  const courtClass = m.court === 'Hauptplatz' ? 'court-main' : 'court-side';
-  const roundTitle = m.round ? `${m.round}` : `Runde ${m.slot} • ${m.group}`;
-  const isFinal = m.round === '🏆 FINALE';
-
-  // Duo-Spieler Namen extrahieren
-  const t1P1 = t1 ? t1.p1 : 'P1';
-  const t1P2 = t1 ? t1.p2 : 'P2';
-  const t2P1 = t2 ? t2.p1 : 'P1';
-  const t2P2 = t2 ? t2.p2 : 'P2';
-
-  // Match-Typing (Hinspiel / Rückspiel) & Kennzeichnung
-  const isLeg1 = m.leg === 1;
-  const isLeg2 = m.leg === 2;
-  const legBadge = isLeg1 
-    ? '<span style="background:var(--fal-yellow); color:#000; padding:2px 6px; border-radius:4px; font-weight:bold; font-size:0.75em;">🟡 Hinspiel (P1 vs P1)</span>'
-    : (isLeg2 ? '<span style="background:#00d2ff; color:#000; padding:2px 6px; border-radius:4px; font-weight:bold; font-size:0.75em;">🔵 Rückspiel (P2 vs P2)</span>' : '');
-
-  // Namen je nach Leg (P1 vs P1 oder P2 vs P2)
-  const player1Name = isLeg2 ? t1P2 : t1P1;
-  const player2Name = isLeg2 ? t2P2 : t2P1;
-
-  const t1Label = t1 ? `${t1.name} <small>(${player1Name})</small>` : 'Team 1';
-  const t2Label = t2 ? `${t2.name} <small>(${player2Name})</small>` : 'Team 2';
-
-  // Aggregate-Berechnung für Leg 2 Anzeigen
-  let aggregateHtml = '';
-  if (isLeg2 && m.pairedMatchId) {
-    const leg1Match = [...groupMatches, ...koMatches].find(x => x.id === m.pairedMatchId);
-    if (leg1Match && leg1Match.played) {
-      const agg1 = leg1Match.score1 + (m.score1 || 0);
-      const agg2 = leg1Match.score2 + (m.score2 || 0);
-      aggregateHtml = `
-        <div style="text-align:center; font-size:0.8em; margin-top:6px; color:var(--fal-yellow); background:rgba(0,0,0,0.3); padding:4px; border-radius:4px;">
-          Gesamtstand (Aggregat): <strong>${agg1} : ${agg2}</strong>
-        </div>
-      `;
-    }
-  }
+  const hinLegColor = 'border-left: 5px solid #f1c40f; background: rgba(241, 196, 15, 0.1);';
+  const rueckLegColor = 'border-left: 5px solid #3498db; background: rgba(52, 152, 219, 0.1);';
 
   return `
-    <div class="match-card ${isFinal ? 'highlight-me' : ''}">
-      <div style="display:flex; justify-content:space-between; align-items:center; gap: 5px; flex-wrap: wrap;">
-        <span style="font-size: 0.85em; font-weight: bold; color: var(--fal-yellow);">${roundTitle}</span>
-        ${legBadge}
-        <span class="court-badge ${courtClass}">${m.court}</span>
+    <div class="match-card" style="position:relative;">
+      <div style="display:flex; justify-content: space-between; align-items:center; flex-wrap:wrap; gap:6px;">
+        <span style="color:var(--fal-yellow); font-weight:bold;">${roundLabel}</span>
+        <div style="display:flex; gap:6px; align-items:center;">
+          ${statusBadge}
+          <span class="court-badge" style="background:${courtColor}; color:white;">${m.court || ''}</span>
+        </div>
       </div>
-      <div style="display:flex; justify-content:space-between; align-items:center; margin: 10px 0;">
-        <span style="font-size: 0.95em;">
-          <strong>${t1Label}</strong> ${t1 && t1.club ? `<small>(${t1.club})</small>` : ''}<br>
-          <small style="opacity:0.7;">vs</small><br>
-          <strong>${t2Label}</strong> ${t2 && t2.club ? `<small>(${t2.club})</small>` : ''}
-        </span>
+
+      <div style="margin: 6px 0;">
+        <div style="font-size:1.05em; font-weight:bold;">
+          ${t1.name} <small style="opacity:0.8;">(${t1.p1} & ${t1.p2})</small> ${t1.club ? `<span style="color:#f1c40f;">[${t1.club}]</span>` : ''}
+        </div>
+        <div style="font-size:0.8em; opacity:0.6; margin:2px 0;">vs</div>
+        <div style="font-size:1.05em; font-weight:bold;">
+          ${t2.name} <small style="opacity:0.8;">(${t2.p1} & ${t2.p2})</small> ${t2.club ? `<span style="color:#f1c40f;">[${t2.club}]</span>` : ''}
+        </div>
       </div>
-      <div style="display:flex; gap: 8px; align-items:center;">
-        <input type="number" min="0" value="${m.score1 !== null ? m.score1 : ''}" 
-               ${canEdit && !m.betsEvaluated ? '' : 'disabled'} id="score1-${m.id}" placeholder="-" style="width: 60px;">
-        <span>:</span>
-        <input type="number" min="0" value="${m.score2 !== null ? m.score2 : ''}" 
-               ${canEdit && !m.betsEvaluated ? '' : 'disabled'} id="score2-${m.id}" placeholder="-" style="width: 60px;">
-        ${canEdit ? `
-          <button class="${m.betsEvaluated ? 'btn-secondary' : 'btn-primary'} btn-sm" 
-                  ${m.betsEvaluated ? 'disabled' : ''} 
-                  onclick="updateMatchScore(${m.id}, ${isKO}, document.getElementById('score1-${m.id}').value, document.getElementById('score2-${m.id}').value)">
-            ${canManageMatches() ? (m.betsEvaluated ? '🔒 Ausgezahlt' : (m.played ? '✓ Bestätigen' : 'Speichern')) : 'Speichern'}
-          </button>
-        ` : ''}
+
+      <div style="display:flex; flex-direction:column; gap:8px;">
+        <div style="padding:8px; border-radius:5px; ${hinLegColor}; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:6px;">
+          <span style="font-size:0.85em;">🟡 <strong>Hinspiel:</strong> ${t1.p1} vs. ${hinP2}</span>
+          <div style="display:flex; gap:5px; align-items:center;">
+            <input type="number" id="${prefix}h1" min="0" max="20" style="width:40px; text-align:center;" ${(!canEdit || locked) ? 'disabled' : ''} value="${m.score1_h !== null && m.score1_h !== undefined ? m.score1_h : ''}">
+            :
+            <input type="number" id="${prefix}h2" min="0" max="20" style="width:40px; text-align:center;" ${(!canEdit || locked) ? 'disabled' : ''} value="${m.score2_h !== null && m.score2_h !== undefined ? m.score2_h : ''}">
+          </div>
+        </div>
+
+        <div style="padding:8px; border-radius:5px; ${rueckLegColor}; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:6px;">
+          <span style="font-size:0.85em;">🔵 <strong>Rückspiel:</strong> ${t1.p2} vs. ${rueckP2}</span>
+          <div style="display:flex; gap:5px; align-items:center;">
+            <input type="number" id="${prefix}r1" min="0" max="20" style="width:40px; text-align:center;" ${(!canEdit || locked) ? 'disabled' : ''} value="${m.score1_r !== null && m.score1_r !== undefined ? m.score1_r : ''}">
+            :
+            <input type="number" id="${prefix}r2" min="0" max="20" style="width:40px; text-align:center;" ${(!canEdit || locked) ? 'disabled' : ''} value="${m.score2_r !== null && m.score2_r !== undefined ? m.score2_r : ''}">
+          </div>
+        </div>
       </div>
-      ${aggregateHtml}
+
+      ${m.played ? `<div style="text-align:center; font-size:0.85em; color:var(--fal-yellow);">Gesamt: <strong>${m.score1} : ${m.score2}</strong></div>` : ''}
+
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        ${(canEdit && !locked) ? `<button class="btn-primary btn-sm" style="flex:1;" onclick="submitMatchResult(${m.id}, ${isKO})">💾 ${m.played ? 'Aktualisieren' : 'Ergebnis eintragen'}</button>` : ''}
+        ${(hasElevated() && m.played && !m.confirmed) ? `<button class="btn-primary btn-sm" style="flex:1; background:#2ecc71; color:#fff;" onclick="confirmMatchResult(${m.id}, ${isKO})">✅ Bestätigen</button>` : ''}
+      </div>
     </div>
   `;
+}
+
+function renderMatches() {
+  const groupContainer = document.getElementById('matches-list');
+  const koContainer = document.getElementById('ko-matches-list');
+
+  if (groupContainer) {
+    if (!groupMatches || groupMatches.length === 0) {
+      groupContainer.innerHTML = '<p class="empty-state">Noch keine Spiele generiert. Bitte zuerst Gruppen auslosen.</p>';
+    } else {
+      groupContainer.innerHTML = groupMatches.map(m => renderMatchBlock(m, false)).join('');
+    }
+  }
+
+  if (koContainer) {
+    if (!koMatches || koMatches.length === 0) {
+      koContainer.innerHTML = '<p class="empty-state">KO-Phase noch nicht ausgelost.</p>';
+    } else {
+      const roundOrder = ['Viertelfinale', 'Halbfinale 1', 'Halbfinale 2', '🥉 Spiel um Platz 3', '🏆 FINALE'];
+      const rounds = roundOrder.filter(r => koMatches.some(m => m.round === r));
+      koContainer.innerHTML = rounds.map(r => `
+        <h4 style="color:var(--fal-yellow); margin-top:15px;">${r}</h4>
+        ${koMatches.filter(m => m.round === r).map(m => renderMatchBlock(m, true)).join('')}
+      `).join('');
+    }
+  }
 }
 
 function renderAdminPanel() {
   const playerListEl = document.getElementById('admin-player-list');
   const clubListEl = document.getElementById('admin-club-list');
+  const lockContainer = document.getElementById('registration-lock-container');
+
+  if (lockContainer) {
+    lockContainer.innerHTML = `
+      <div style="display:flex; align-items:center; justify-content:space-between; background:rgba(0,0,0,0.2); padding:8px 12px; border-radius:8px; margin-bottom:12px;">
+        <span style="font-size:0.9em;">${registrationLocked ? '🔒 Registrierung gesperrt' : '🔓 Registrierung offen'}</span>
+        <button class="btn-secondary btn-sm" onclick="toggleRegistrationLock()">${registrationLocked ? 'Entsperren' : 'Sperren'}</button>
+      </div>
+    `;
+  }
 
   if (playerListEl) {
     playerListEl.innerHTML = players.map((p, index) => {
@@ -1619,20 +1563,18 @@ function renderAdminPanel() {
       return `
         <div style="display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; background: var(--fal-blue-primary); padding: 10px 12px; border-radius: 8px; margin-bottom: 8px; gap: 8px;">
           <div>
-            <strong>${index + 1}. ${p.name}</strong> 
+            <strong>${index + 1}. ${p.name}</strong>
             ${p.isRef ? '<span style="color:var(--fal-yellow); font-size:0.85em;">[🟨 Ref]</span>' : ''}
             ${hasPW ? '<span style="font-size:0.85em; opacity:0.8;">[🔒 PW]</span>' : ''}
           </div>
 
           <div style="display:flex; gap: 5px; flex-wrap:wrap;">
-            <button class="${isRefBtnClass} btn-sm" onclick="toggleRef(${index})">
-              ${p.isRef ? '🟨 Ref (Aktiv)' : 'Ref vergeben'}
-            </button>
-            ${hasPW 
+            ${isAdmin() ? `<button class="${isRefBtnClass} btn-sm" onclick="toggleRef(${index})">${p.isRef ? '🟨 Ref (Aktiv)' : 'Ref vergeben'}</button>` : ''}
+            ${hasPW
               ? `<button class="btn-danger btn-sm" onclick="removePlayerPassword(${index})">PW löschen</button>`
               : `<button class="btn-secondary btn-sm" onclick="setPlayerPassword(${index})">+ PW</button>`
             }
-            <button class="btn-danger btn-sm" onclick="removePlayer(${index})">🗑️</button>
+            ${isAdmin() ? `<button class="btn-danger btn-sm" onclick="removePlayer(${index})">🗑️</button>` : ''}
           </div>
         </div>
       `;
@@ -1647,14 +1589,15 @@ function renderAdminPanel() {
     `).join('');
   }
 }
+
 // ==========================================
-// 🎯 WETT-SYSTEM LOGIK & RENDERING
+// 🎯 WETT-SYSTEM LOGIK & RENDERING (Ergebniswetten)
 // ==========================================
 
 function getUserBalance(playerName) {
   if (!playerName) return 0;
   if (userBalances[playerName] === undefined) {
-    userBalances[playerName] = 100; // Startguthaben für jeden neuen Spieler
+    userBalances[playerName] = 100;
   }
   return userBalances[playerName];
 }
@@ -1666,47 +1609,46 @@ function renderBettingSystem() {
 
   if (!balanceEl || !matchesListEl || !leaderboardEl) return;
 
-  // 1. Kontostand anzeigen
   const currentBalance = myPlayerName ? getUserBalance(myPlayerName) : 0;
   balanceEl.innerText = currentBalance;
 
-  // 2. Nächste ungespielte Spiele laden
-  const upcomingMatches = [...groupMatches, ...koMatches]
-    .filter(m => !m.played && m.t1Id && m.t2Id)
-    .slice(0, 3); // Max 3 nächste Spiele zum Wetten anzeigen
+  const upcoming = [
+    ...groupMatches.map(m => ({ ...m, isKO: false })),
+    ...koMatches.map(m => ({ ...m, isKO: true }))
+  ].filter(m => !m.played && m.t1Id && m.t2Id).slice(0, 3);
 
-  if (upcomingMatches.length === 0) {
+  if (upcoming.length === 0) {
     matchesListEl.innerHTML = '<p style="opacity:0.7;">Aktuell keine anstehenden Spiele zum Wetten verfügbar.</p>';
   } else {
-    matchesListEl.innerHTML = upcomingMatches.map(m => {
+    matchesListEl.innerHTML = upcoming.map(m => {
       const t1 = teams.find(t => t.id === m.t1Id);
       const t2 = teams.find(t => t.id === m.t2Id);
       if (!t1 || !t2) return '';
 
-      // Prüfen, ob der User bereits auf dieses Spiel gewettet hat
-      const myExistingBet = bets.find(b => b.matchId === m.id && b.playerName === myPlayerName);
+      const myExistingBet = bets.find(b => b.matchId === m.id && b.isKO === m.isKO && b.playerName === myPlayerName);
+      const uid = `${m.isKO ? 'ko' : 'gr'}-${m.id}`;
 
       return `
         <div style="background: rgba(255,255,255,0.05); padding: 12px; border-radius: 8px; margin-bottom: 10px; border: 1px solid rgba(255,255,255,0.1);">
-          <div style="font-size: 0.85em; opacity: 0.8; margin-bottom: 5px;">${m.round || m.group || 'Spiel'}</div>
-          <div style="display: flex; justify-content: space-between; align-items: center; font-weight: bold; margin-bottom: 10px;">
-            <span>${t1.p1}/${t1.p2} (${t1.club || 'Team 1'})</span>
+          <div style="font-size: 0.85em; opacity: 0.8; margin-bottom: 5px;">${m.isKO ? m.round : m.group}</div>
+          <div style="display: flex; justify-content: space-between; align-items: center; font-weight: bold; margin-bottom: 10px; flex-wrap:wrap; gap:6px;">
+            <span>${t1.name}${t1.club ? ' (' + t1.club + ')' : ''}</span>
             <span style="color: var(--fal-yellow);">VS</span>
-            <span>${t2.p1}/${t2.p2} (${t2.club || 'Team 2'})</span>
+            <span>${t2.name}${t2.club ? ' (' + t2.club + ')' : ''}</span>
           </div>
-          
+
           ${myExistingBet ? `
             <div style="text-align:center; font-size: 0.9em; color: var(--fal-yellow); background: rgba(0,0,0,0.2); padding: 5px; border-radius: 5px;">
-              ✅ Gewettet: <strong>${myExistingBet.amount} Coins</strong> auf <strong>${myExistingBet.chosenTeamId === t1.id ? t1.club : t2.club}</strong>
+              ✅ Gewettet: <strong>${myExistingBet.amount} Coins</strong> auf <strong>${myExistingBet.chosenTeamId === t1.id ? t1.name : t2.name}</strong>
             </div>
           ` : `
-            <div style="display: flex; gap: 8px; align-items: center;">
-              <select id="bet-team-${m.id}" style="flex: 2; padding: 6px; border-radius: 4px;">
-                <option value="${t1.id}">${t1.club || t1.name}</option>
-                <option value="${t2.id}">${t2.club || t2.name}</option>
+            <div class="bet-input-row">
+              <select id="bet-team-${uid}">
+                <option value="${t1.id}">${t1.name}</option>
+                <option value="${t2.id}">${t2.name}</option>
               </select>
-              <input type="number" id="bet-amount-${m.id}" placeholder="Coins" min="1" max="${currentBalance}" style="flex: 1; padding: 6px; border-radius: 4px;">
-              <button class="btn-primary" style="padding: 6px 12px; font-size: 0.9em;" onclick="placeBet(${m.id})">Wetten</button>
+              <input type="number" id="bet-amount-${uid}" placeholder="Coins" min="1" max="${currentBalance}">
+              <button class="btn-primary" style="padding: 6px 12px; font-size: 0.9em;" onclick="placeBet(${m.id}, ${m.isKO})">Wetten</button>
             </div>
           `}
         </div>
@@ -1714,16 +1656,16 @@ function renderBettingSystem() {
     }).join('');
   }
 
-  // 3. Highroller Ranking
   const sortedUsers = Object.keys(userBalances)
     .map(name => ({ name, balance: userBalances[name] }))
-    .sort((a, b) => b.balance - a.balance);
+    .sort((a, b) => b.balance - a.balance)
+    .slice(0, 5);
 
   if (sortedUsers.length === 0) {
     leaderboardEl.innerHTML = '<p style="font-size:0.85em; opacity:0.7;">Noch keine Konten aktiv.</p>';
   } else {
     leaderboardEl.innerHTML = sortedUsers.map((u, i) => `
-      <div style="display: flex; justify-content: space-between; font-size: 0.9em; padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,0.05);">
+      <div class="leaderboard-item">
         <span>${i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i + 1}.`} ${u.name}</span>
         <span style="font-weight: bold; color: var(--fal-yellow);">${u.balance} 🪙</span>
       </div>
@@ -1731,11 +1673,13 @@ function renderBettingSystem() {
   }
 }
 
-function placeBet(matchId) {
+function placeBet(matchId, isKO) {
   if (!myPlayerName) return alert('Bitte melde dich erst an, um zu wetten!');
 
-  const teamSelect = document.getElementById(`bet-team-${matchId}`);
-  const amountInput = document.getElementById(`bet-amount-${matchId}`);
+  const uid = `${isKO ? 'ko' : 'gr'}-${matchId}`;
+  const teamSelect = document.getElementById(`bet-team-${uid}`);
+  const amountInput = document.getElementById(`bet-amount-${uid}`);
+  if (!teamSelect || !amountInput) return;
 
   const chosenTeamId = parseInt(teamSelect.value);
   const amount = parseInt(amountInput.value);
@@ -1744,104 +1688,28 @@ function placeBet(matchId) {
   if (isNaN(amount) || amount <= 0) return alert('Bitte einen gültigen Wettbetrag eingeben!');
   if (amount > currentBalance) return alert('Du hast nicht genügend FAL-Coins!');
 
-  // Coins abziehen
   userBalances[myPlayerName] -= amount;
 
-  // Wette einspeichern
-  bets.push({
-    matchId: matchId,
-    playerName: myPlayerName,
-    chosenTeamId: chosenTeamId,
-    amount: amount
+  bets.push({ matchId, isKO, playerName: myPlayerName, chosenTeamId, amount });
+
+  saveData();
+}
+
+function evaluateBetsForMatch(matchId, isKO, winningTeamId) {
+  const relatedBets = bets.filter(b => b.matchId === matchId && b.isKO === isKO);
+
+  relatedBets.forEach(b => {
+    if (b.chosenTeamId === winningTeamId) {
+      const winAmount = b.amount * 2;
+      userBalances[b.playerName] = (userBalances[b.playerName] || 0) + winAmount;
+    }
   });
 
-  saveData();
-}
+  bets = bets.filter(b => !(b.matchId === matchId && b.isKO === isKO));
 
-// 3. WETTAUSWERTUNG ANHAND DES AGGREGAT-ERGEBNISSES
-function evaluateBetsForMatch(matchId) {
-  const match = [...groupMatches, ...koMatches].find(m => m.id === matchId);
-  if (!match) return;
-
-  // Prüfen, ob es ein Rückspiel/Aggregat-Match ist
-  let leg1 = match;
-  let leg2 = null;
-
-  if (match.leg === 1) {
-    leg2 = [...groupMatches, ...koMatches].find(m => m.pairedMatchId === match.id || m.id === match.pairedMatchId);
-  } else if (match.leg === 2) {
-    leg2 = match;
-    leg1 = [...groupMatches, ...koMatches].find(m => m.id === match.pairedMatchId);
-  }
-
-  // Falls es ein Doppel-Match (Hin/Rück) ist, Wette erst auswerten, wenn BEIDE Spiele gespielt sind!
-  if (leg1 && leg2) {
-    if (!leg1.played || !leg2.played) return; // Noch auf zweites Spiel warten
-
-    const aggScore1 = leg1.score1 + leg2.score1;
-    const aggScore2 = leg1.score2 + leg2.score2;
-
-    let winningTeamId = null;
-    if (aggScore1 > aggScore2) winningTeamId = leg1.t1Id;
-    else if (aggScore2 > aggScore1) winningTeamId = leg1.t2Id;
-
-    // Wetten auf Hin- und Rückspiel-IDs sammeln
-    const relatedBets = bets.filter(b => b.matchId === leg1.id || b.matchId === leg2.id);
-
-    relatedBets.forEach(b => {
-      if (winningTeamId && b.chosenTeamId === winningTeamId) {
-        const winAmount = b.amount * 2;
-        userBalances[b.playerName] = (userBalances[b.playerName] || 0) + winAmount;
-      }
-    });
-
-    // Wetten aufräumen und absichern
-    bets = bets.filter(b => b.matchId !== leg1.id && b.matchId !== leg2.id);
-    leg1.betsEvaluated = true;
-    leg2.betsEvaluated = true;
-  } else {
-    // Einzelspiel-Fallback
-    const winningTeamId = match.score1 > match.score2 ? match.t1Id : (match.score2 > match.score1 ? match.t2Id : null);
-    const matchBets = bets.filter(b => b.matchId === matchId);
-
-    matchBets.forEach(b => {
-      if (winningTeamId && b.chosenTeamId === winningTeamId) {
-        const winAmount = b.amount * 2;
-        userBalances[b.playerName] = (userBalances[b.playerName] || 0) + winAmount;
-      }
-    });
-
-    bets = bets.filter(b => b.matchId !== matchId);
-    match.betsEvaluated = true;
-  }
+  const matchArray = getMatchArray(isKO);
+  const match = matchArray.find(m => m.id === matchId);
+  if (match) match.betsEvaluated = true;
 
   saveData();
-}
-// Abbruch-Funktion für den Admin
-function cancelDraft() {
-  if (!isAdmin()) return;
-  
-  if (confirm("Möchtest du die Auslosung wirklich abbrechen und zurücksetzen?")) {
-    if (typeof animFrameId !== 'undefined' && animFrameId) {
-      cancelAnimationFrame(animFrameId);
-    }
-    
-    draftState = {
-      active: false,
-      spinning: false,
-      currentStep: 0,
-      tempP1: null,
-      tempP2: null,
-      lastDrawnItem: null
-    };
-
-    saveData();
-    
-    // Modal schließen
-    const modal = document.getElementById('draft-modal');
-    if (modal) modal.style.display = 'none';
-    
-    renderAll();
-    alert("Auslosung wurde zurückgesetzt!");
-  }
 }
