@@ -616,16 +616,16 @@ function drawWheelCanvas(angleOffset) {
 function spinWheel() {
   if (!isAdmin() || draftState.spinning) return;
 
-  // Pool bestimmen je nach Schritt
+  // Richtigen Pool ermitteln
   let currentPool = [];
   if (draftState.currentStep === 0 || draftState.currentStep === 1) {
     currentPool = draftState.remainingPlayers;
-  } else {
+  } else if (draftState.currentStep === 2) {
     currentPool = draftState.remainingClubs;
   }
 
   if (!currentPool || currentPool.length === 0) {
-    return alert("Keine Elemente mehr zum Auslosen im Pool!");
+    return alert("Keine Elemente mehr zum Auslosen im aktuellen Pool!");
   }
 
   const targetIndex = Math.floor(Math.random() * currentPool.length);
@@ -645,30 +645,34 @@ function spinWheel() {
   draftState.lastDrawnItem = null;
   saveData();
 
-  // Nach Ablauf der 4 Sekunden Ergebnis zuweisen
+  // Nach Ablauf der Dreh-Animation (4 Sekunden)
   setTimeout(() => {
     if (isAdmin() && draftState.spinning) {
       draftState.spinning = false;
       draftState.lastDrawnItem = targetItem;
 
-      // Zwischenspeichern je nach Schritt
+      // Werte je nach Schritt ablegen
       if (draftState.currentStep === 0) {
         draftState.tempP1 = targetItem;
       } else if (draftState.currentStep === 1) {
         draftState.tempP2 = targetItem;
       } else if (draftState.currentStep === 2) {
-        // Duo & Club sind voll -> Fertiges Team erstellen!
-        draftState.pairs.push({
+        // Sicherstellen, dass draftState.pairs ein Array ist
+        if (!draftState.pairs) draftState.pairs = [];
+        
+        // Neues Team mit Duo + Club abspeichern
+        const newTeam = {
           id: draftState.pairs.length + 1,
           name: `Team ${draftState.pairs.length + 1}`,
           p1: draftState.tempP1,
           p2: draftState.tempP2,
           club: targetItem
-        });
+        };
+        draftState.pairs.push(newTeam);
       }
 
       saveData();
-      handleLiveDraftUI();
+      renderDraftStep();
     }
   }, 4100);
 }
@@ -676,25 +680,27 @@ function spinWheel() {
 function nextDraftStep() {
   if (!isAdmin()) return;
 
-  // Element erst beim Weiterklicken aus dem Pool entfernen
   if (draftState.lastDrawnItem) {
     if (draftState.currentStep === 0) {
-      // P1 entfernt -> weiter zu P2
+      // Spieler 1 aus Pool entfernen -> Weiter zu Spieler 2
       const idx = draftState.remainingPlayers.indexOf(draftState.lastDrawnItem);
       if (idx !== -1) draftState.remainingPlayers.splice(idx, 1);
       draftState.currentStep = 1;
+
     } else if (draftState.currentStep === 1) {
-      // P2 entfernt -> weiter zum Club
+      // Spieler 2 aus Pool entfernen -> Weiter zum Club
       const idx = draftState.remainingPlayers.indexOf(draftState.lastDrawnItem);
       if (idx !== -1) draftState.remainingPlayers.splice(idx, 1);
       draftState.currentStep = 2;
+
     } else if (draftState.currentStep === 2) {
-      // Club entfernt -> Duo fertig! Reset auf P1 für nächstes Team
+      // Club aus Club-Pool entfernen -> Duo ist fertig! Reset für nächstes Team
       const idx = draftState.remainingClubs.indexOf(draftState.lastDrawnItem);
       if (idx !== -1) draftState.remainingClubs.splice(idx, 1);
+      
       draftState.tempP1 = null;
       draftState.tempP2 = null;
-      draftState.currentStep = 0;
+      draftState.currentStep = 0; // Zurück zu Schritt 1 (Spieler 1 für Team X)
     }
   }
 
@@ -702,11 +708,10 @@ function nextDraftStep() {
   draftState.targetAngle = 0;
   draftState.startTime = null;
   draftState.spinning = false;
-  
-  saveData();
-  handleLiveDraftUI();
-}
 
+  saveData();
+  renderDraftStep();
+}
 function finishDraft() {
   if (!isAdmin()) return;
   teams = [...draftState.pairs];
