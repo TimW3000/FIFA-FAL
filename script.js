@@ -463,16 +463,25 @@ function renderDraftStep() {
   const stage = document.getElementById('draft-stage');
   if (!stage) return;
 
-  // Wenn keine Spieler mehr übrig sind und das letzte Team voll ist
-  if (draftState.remainingPlayers.length === 0 && draftState.currentStep === 0) {
+  // PRÜFUNG: Erst wenn keine Spieler MEHR übrig sind UND auch keine Clubs mehr gelost werden müssen (currentStep 0 + tempP1 ist leer)
+  const noPlayersLeft = !draftState.remainingPlayers || draftState.remainingPlayers.length === 0;
+  const noClubsLeft = !draftState.remainingClubs || draftState.remainingClubs.length === 0;
+  const noDuoPending = !draftState.tempP1 && !draftState.tempP2 && !draftState.lastDrawnItem;
+
+  if (noPlayersLeft && noDuoPending) {
     stage.innerHTML = `
-      <h3 style="color:#4CAF50;">🎉 Alle Teams wurden gelost! 🎉</h3>
-      <p>Die Duos und ihre Profi-Clubs stehen fest!</p>
-      ${isAdmin() ? `<button class="btn-primary role-btn" onclick="finishDraft()">Fertigstellen & Teams speichern</button>` : '<p style="color:var(--fal-yellow);">Warte auf Admin-Bestätigung...</p>'}
+      <h3 style="color:#4CAF50; margin-bottom: 10px;">🎉 Alle Teams & Clubs wurden gelost! 🎉</h3>
+      <p>Die Duos und ihre Profi-Vereine stehen fest.</p>
+      ${isAdmin() ? `
+        <button class="btn-primary role-btn" style="margin-top:15px;" onclick="finishDraft()">
+          💾 Teams speichern & Auslosung beenden
+        </button>
+      ` : '<p style="color:var(--fal-yellow);">Warte auf Admin-Bestätigung...</p>'}
     `;
     return;
   }
 
+  // ... hier läuft dein restlicher Code von renderDraftStep() ganz normal weiter ...
   const currentTeamNum = (draftState.pairs ? draftState.pairs.length : teams.length) + 1;
   let stepText = '';
   if (draftState.currentStep === 0) stepText = '🎰 Step 1: Lose <strong>Spieler 1</strong>';
