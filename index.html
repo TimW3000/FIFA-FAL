@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>FAL FIFA Turnier</title>
+  <title>FAL FIFA Turnier v2</title>
   <link rel="stylesheet" href="style.css">
   
   <!-- Firebase App & Database SDKs -->
@@ -47,12 +47,12 @@
     </div>
   </div>
 
-  <!-- INTERAKTIVE AUSLOSUNG SHOW-MODAL (GLÜCKSRAD) -->
+  <!-- INTERAKTIVE AUSLOSUNG SHOW-MODAL (DOPPEL-GLÜCKSRAD: SPIELER & CLUBS) -->
   <div id="draft-modal" class="modal-overlay" style="display: none;">
-    <div class="modal-content" style="max-width: 500px; padding: 25px;">
-      <h2 style="color: var(--fal-yellow); margin-top:0;">🎰 LIVE-AUSLOSUNG</h2>
+    <div class="modal-content" style="max-width: 520px; padding: 25px;">
+      <h2 style="color: var(--fal-yellow); margin-top:0;">🎰 LIVE-TEAM & CLUB AUSLOSUNG</h2>
       <div id="draft-stage">
-        <!-- Dynamischer Inhalt für die Schritte -->
+        <!-- Dynamischer Inhalt für den 2-Stufen-Draft -->
       </div>
     </div>
   </div>
@@ -97,9 +97,7 @@
         <div id="dashboard-content"></div>
       </div>
 
-      <!-- ========================================== -->
-      <!-- 🎯 HIER STARTET DER WETT-KONTO SCHNIPSEL   -->
-      <!-- ========================================== -->
+      <!-- WETT-KONTO SCHNIPSEL -->
       <div class="admin-card" style="margin-top: 20px;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 10px;">
           <h3 style="color:var(--fal-yellow, #f1c40f); margin:0;">🎯 Wettschein & FAL-Coins</h3>
@@ -109,26 +107,21 @@
         </div>
 
         <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 20px;" class="betting-grid-responsive">
-          <!-- NÄCHSTE SPIELE ZUM WETTEN -->
           <div>
-            <h4 style="margin-top: 0; opacity: 0.9;">🔥 Nächste Spiele zum Wetten</h4>
+            <h4 style="margin-top: 0; opacity: 0.9;">🔥 Nächste Spiele zum Wetten (Gesamtergebnis)</h4>
             <div id="betting-matches-list">
               <p style="opacity: 0.7;">Noch keine Spiele zum Wetten verfügbar.</p>
             </div>
           </div>
 
-          <!-- WETT-LEADERBOARD -->
           <div style="background: rgba(0,0,0,0.25); padding: 15px; border-radius: 8px;">
             <h4 style="margin-top: 0; color: var(--fal-yellow, #f1c40f);">🏆 Highroller Ranking</h4>
-            <div id="betting-leaderboard">
-              <!-- Dynamische Rangliste -->
-            </div>
+            <div id="betting-leaderboard"></div>
           </div>
         </div>
       </div>
-      <!-- ========================================== -->
-
     </section>
+
     <!-- TEAMS TAB -->
     <section id="tab-teams" class="tab-content">
       <h2>Angemeldete Teams</h2>
@@ -137,13 +130,24 @@
 
     <!-- GRUPPEN TAB -->
     <section id="tab-groups" class="tab-content">
-      <h2>Gruppenphase & Tabellen</h2>
+      <h2>Gruppenphase & Tabellen (3 Gruppen à 3 Teams)</h2>
       <div id="groups-container" class="grid-container"></div>
+      
+      <!-- NEU: Container für den Quervergleich der besten Gruppendritten -->
+      <div id="third-place-container" style="margin-top: 25px;"></div>
     </section>
 
     <!-- SPIELE TAB -->
     <section id="tab-matches" class="tab-content">
-      <h2>Spielplan & Ergebnisse</h2>
+      <h2>Spielplan & Ergebnisse (1v1 Hin- & Rückspiele)</h2>
+      
+      <!-- Legende für die Farben -->
+      <div style="display: flex; gap: 15px; background: rgba(0,0,0,0.3); padding: 10px 15px; border-radius: 8px; margin-bottom: 20px; align-items: center; flex-wrap: wrap;">
+        <span style="font-weight: bold; font-size: 0.9em;">Legende:</span>
+        <span style="background: rgba(241, 196, 15, 0.2); border-left: 4px solid var(--fal-yellow); padding: 4px 8px; border-radius: 4px; font-size: 0.85em;">🟡 Gelb: Spieler 1 vs. Spieler 1</span>
+        <span style="background: rgba(52, 152, 219, 0.2); border-left: 4px solid #3498db; padding: 4px 8px; border-radius: 4px; font-size: 0.85em;">🔵 Blau: Spieler 2 vs. Spieler 2</span>
+      </div>
+
       <h3>Gruppenspiele</h3>
       <div id="group-matches-list"></div>
       <hr style="margin: 30px 0; border: 0; border-top: 1px solid var(--fal-blue-light);">
@@ -157,6 +161,7 @@
       
       <div class="admin-card">
         <h3>Spieler verwalten</h3>
+        <div id="registration-lock-container"></div>
         <div style="display: flex; gap: 10px; margin-bottom: 15px;">
           <input type="text" id="new-player-name" placeholder="Spielername eingeben...">
           <button class="btn-primary" onclick="addPlayer()">Hinzufügen</button>
@@ -178,9 +183,9 @@
       <div class="admin-card">
         <h3>Turnier-Steuerung</h3>
         <div style="display: flex; flex-wrap: wrap; gap: 10px;">
-          <button class="btn-primary" style="background-color:#ffc800; color:#000;" onclick="startInteractiveDraft()">🎰 Teams & Clubs Zelebrieren (Auslosung)</button>
-          <button class="btn-primary" onclick="drawGroups()">📊 Gruppen & Spielplan erstellen</button>
-          <button class="btn-primary" onclick="drawKOPhase()">⚔️ Viertelfinale auslosen</button>
+          <button class="btn-primary" style="background-color:#ffc800; color:#000;" onclick="startInteractiveDraft()">🎰 1. Teams & Clubs per Glücksrad auslosen</button>
+          <button class="btn-primary" onclick="drawGroups()">📊 2. Gruppen (3x3) & Spielplan erstellen</button>
+          <button class="btn-primary" onclick="drawKOPhase()">⚔️ 3. Viertelfinale auslosen (Inkl. Beste Dritte)</button>
           <button class="btn-danger" onclick="resetTournament()">🗑️ Turnier komplett zurücksetzen</button>
         </div>
       </div>
