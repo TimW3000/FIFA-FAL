@@ -133,7 +133,7 @@
       <h2>Gruppenphase & Tabellen (3 Gruppen à 3 Teams)</h2>
       <div id="groups-container" class="grid-container"></div>
       
-      <!-- NEU: Container für den Quervergleich der besten Gruppendritten -->
+      <!-- Container für den Quervergleich der besten Gruppendritten -->
       <div id="third-place-container" style="margin-top: 25px;"></div>
     </section>
 
@@ -149,8 +149,11 @@
       </div>
 
       <h3>Gruppenspiele</h3>
-      <div id="group-matches-list"></div>
-      <hr style="margin: 30px 0; border: 0; border-top: 1px solid var(--fal-blue-light);">
+      <!-- GEÄNDERT: id="matches-list" verknüpft nun direkt mit renderMatches() -->
+      <div id="matches-list"></div>
+      
+      <hr style="margin: 30px 0; border: 0; border-top: 1px solid var(--fal-blue-light, #2c3e50);">
+      
       <h3>KO-Phase</h3>
       <div id="ko-matches-list"></div>
     </section>
