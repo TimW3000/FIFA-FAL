@@ -1027,10 +1027,11 @@ function updateTeamName(teamId, newName) {
   }
 }
 
-function updateMatchScore(matchId, isKO, score1Val, score2Val) {
+function updateMatchScore(matchId, isKO) {
   const matchArray = isKO ? koMatches : groupMatches;
   const match = matchArray.find(m => m.id === matchId);
   if (!match) return;
+
   if (match.betsEvaluated) {
     alert('Dieses Spiel wurde bereits bestätigt und ausgezahlt. Der Spielstand ist gesperrt!');
     return;
@@ -1045,23 +1046,56 @@ function updateMatchScore(matchId, isKO, score1Val, score2Val) {
     return;
   }
 
-  if (score1Val === '' || score2Val === '') {
-    match.score1 = null; match.score2 = null; match.played = false;
+  // 1. Werte aus den 4 Hin- & Rückspiel-Feldern holen
+  const h1El = document.getElementById(`m_${matchId}_h1`);
+  const h2El = document.getElementById(`m_${matchId}_h2`);
+  const r1El = document.getElementById(`m_${matchId}_r1`);
+  const r2El = document.getElementById(`m_${matchId}_r2`);
+
+  // Falls es ein einfaches KO-Spiel ohne Hin/Rückspiel ist, Fallback auf Standard-Inputs
+  const h1 = h1El ? h1El.value : (document.getElementById(`m_${matchId}_1`)?.value || '');
+  const h2 = h2El ? h2El.value : (document.getElementById(`m_${matchId}_2`)?.value || '');
+  const r1 = r1El ? r1El.value : '';
+  const r2 = r2El ? r2El.value : '';
+
+  // 2. Zurücksetzen, wenn Felder leer sind
+  if (h1 === '' || h2 === '') {
+    match.score1_h = null; match.score2_h = null;
+    match.score1_r = null; match.score2_r = null;
+    match.score1 = null;   match.score2 = null;
+    match.played = false;
   } else {
-    const s1 = parseInt(score1Val, 10);
-    const s2 = parseInt(score2Val, 10);
+    const s1_h = parseInt(h1, 10);
+    const s2_h = parseInt(h2, 10);
+    const s1_r = r1 !== '' ? parseInt(r1, 10) : 0;
+    const s2_r = r2 !== '' ? parseInt(r2, 10) : 0;
 
-    if (isKO && s1 === s2) return alert('In der KO-Phase muss es einen Sieger geben!');
+    // Speichern der Einzel-Ergebnisse (Gelb vs. Blau)
+    match.score1_h = s1_h; match.score2_h = s2_h;
+    match.score1_r = r1 !== '' ? s1_r : null; 
+    match.score2_r = r2 !== '' ? s2_r : null;
 
-    match.score1 = s1; match.score2 = s2; match.played = true;
+    // Gesamttore berechnen
+    const totalS1 = s1_h + s1_r;
+    const totalS2 = s2_h + s2_r;
 
-    if (s1 !== s2 && canManageMatches()) {
-      const winningTeamId = s1 > s2 ? match.t1Id : match.t2Id;
+    if (isKO && totalS1 === totalS2) {
+      return alert('In der KO-Phase muss es nach Hin- und Rückspiel einen Gesamtsieger geben!');
+    }
+
+    match.score1 = totalS1;
+    match.score2 = totalS2;
+    match.played = true;
+
+    // 3. Wetten automatisch auswerten (bei Gesamtsieger)
+    if (totalS1 !== totalS2 && typeof evaluateBetsForMatch === 'function' && canManageMatches()) {
+      const winningTeamId = totalS1 > totalS2 ? match.t1Id : match.t2Id;
       evaluateBetsForMatch(matchId, winningTeamId);
     }
 
-    if (match.round === '🏆 FINALE') {
-      const winnerTeamId = s1 > s2 ? match.t1Id : match.t2Id;
+    // 4. Siegerehrung bei Final-Sieg
+    if (match.round === '🏆 FINALE' || match.round === 'Finale') {
+      const winnerTeamId = totalS1 > totalS2 ? match.t1Id : match.t2Id;
       const winnerTeam = teams.find(t => t.id === winnerTeamId);
 
       if (winnerTeam) {
@@ -1073,8 +1107,9 @@ function updateMatchScore(matchId, isKO, score1Val, score2Val) {
   }
 
   saveData();
+  renderAll();
+  alert('✅ Ergebnisse gespeichert & Wettauszahlung aktualisiert!');
 }
-
 // 10. Render Panel & UI
 function renderAll() {
   renderHome();
