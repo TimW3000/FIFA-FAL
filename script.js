@@ -550,15 +550,27 @@ function drawWheelCanvas(angleOffset) {
   const canvas = document.getElementById('wheel-canvas');
   if (!canvas) return;
   const ctx = canvas.getContext('2d');
-  const numClubs = draftState.remainingClubs.length;
-  if (numClubs === 0) return;
 
-  const sliceAngle = (2 * Math.PI) / numClubs;
+  // Pool dynamisch je nach Schritt bestimmen (0 & 1 = Spieler, 2 = Clubs)
+  let items = [];
+  if (draftState.currentStep === 0 || draftState.currentStep === 1) {
+    items = draftState.remainingPlayers;
+  } else {
+    items = draftState.remainingClubs;
+  }
+
+  const numItems = items ? items.length : 0;
+  if (numItems === 0) {
+    ctx.clearRect(0, 0, 260, 260);
+    return;
+  }
+
+  const sliceAngle = (2 * Math.PI) / numItems;
   ctx.clearRect(0, 0, 260, 260);
 
   const colors = ['#1e3e62', '#0b192c', '#132a4a', '#2a2a2a', '#10233d'];
 
-  for (let i = 0; i < numClubs; i++) {
+  for (let i = 0; i < numItems; i++) {
     const startAngle = angleOffset + i * sliceAngle;
     const endAngle = startAngle + sliceAngle;
 
@@ -577,7 +589,10 @@ function drawWheelCanvas(angleOffset) {
     ctx.textAlign = "right";
     ctx.fillStyle = "#ffffff";
     ctx.font = "bold 11px sans-serif";
-    ctx.fillText(draftState.remainingClubs[i].substring(0, 12), 120, 4);
+    
+    // Kürzen der Namen auf max. 12 Zeichen (wie bei dir)
+    const text = String(items[i]).substring(0, 12);
+    ctx.fillText(text, 120, 4);
     ctx.restore();
   }
 }
@@ -585,11 +600,23 @@ function drawWheelCanvas(angleOffset) {
 function spinWheel() {
   if (!isAdmin() || draftState.spinning) return;
 
-  const targetIndex = Math.floor(Math.random() * draftState.remainingClubs.length);
-  const targetClub = draftState.remainingClubs[targetIndex];
+  // Pool bestimmen je nach Schritt
+  let currentPool = [];
+  if (draftState.currentStep === 0 || draftState.currentStep === 1) {
+    currentPool = draftState.remainingPlayers;
+  } else {
+    currentPool = draftState.remainingClubs;
+  }
 
-  const numClubs = draftState.remainingClubs.length;
-  const sliceAngle = (2 * Math.PI) / numClubs;
+  if (!currentPool || currentPool.length === 0) {
+    return alert("Keine Elemente mehr zum Auslosen im Pool!");
+  }
+
+  const targetIndex = Math.floor(Math.random() * currentPool.length);
+  const targetItem = currentPool[targetIndex];
+
+  const numItems = currentPool.length;
+  const sliceAngle = (2 * Math.PI) / numItems;
 
   const targetSegmentCenter = (targetIndex + 0.5) * sliceAngle;
   const targetAngleAtTop = (1.5 * Math.PI) - targetSegmentCenter;
@@ -599,16 +626,33 @@ function spinWheel() {
   draftState.startTime = Date.now();
   draftState.targetAngle = totalRotation;
   draftState.duration = 4000;
-  draftState.lastDrawnClub = null;
+  draftState.lastDrawnItem = null;
   saveData();
 
-  // Nach Ablauf der 4 Sekunden speichern wir das Endergebnis (Club wird HIER noch NICHT gelöscht)
+  // Nach Ablauf der 4 Sekunden Ergebnis zuweisen
   setTimeout(() => {
     if (isAdmin() && draftState.spinning) {
       draftState.spinning = false;
-      draftState.lastDrawnClub = targetClub;
-      draftState.pairs[draftState.currentIndex].club = targetClub;
+      draftState.lastDrawnItem = targetItem;
+
+      // Zwischenspeichern je nach Schritt
+      if (draftState.currentStep === 0) {
+        draftState.tempP1 = targetItem;
+      } else if (draftState.currentStep === 1) {
+        draftState.tempP2 = targetItem;
+      } else if (draftState.currentStep === 2) {
+        // Duo & Club sind voll -> Fertiges Team erstellen!
+        draftState.pairs.push({
+          id: draftState.pairs.length + 1,
+          name: `Team ${draftState.pairs.length + 1}`,
+          p1: draftState.tempP1,
+          p2: draftState.tempP2,
+          club: targetItem
+        });
+      }
+
       saveData();
+      handleLiveDraftUI();
     }
   }, 4100);
 }
@@ -616,20 +660,35 @@ function spinWheel() {
 function nextDraftStep() {
   if (!isAdmin()) return;
 
-  // HIER löschen wir den Club erst sauber heraus, wenn es weitergeht!
-  if (draftState.lastDrawnClub) {
-    const idx = draftState.remainingClubs.indexOf(draftState.lastDrawnClub);
-    if (idx !== -1) {
-      draftState.remainingClubs.splice(idx, 1);
+  // Element erst beim Weiterklicken aus dem Pool entfernen
+  if (draftState.lastDrawnItem) {
+    if (draftState.currentStep === 0) {
+      // P1 entfernt -> weiter zu P2
+      const idx = draftState.remainingPlayers.indexOf(draftState.lastDrawnItem);
+      if (idx !== -1) draftState.remainingPlayers.splice(idx, 1);
+      draftState.currentStep = 1;
+    } else if (draftState.currentStep === 1) {
+      // P2 entfernt -> weiter zum Club
+      const idx = draftState.remainingPlayers.indexOf(draftState.lastDrawnItem);
+      if (idx !== -1) draftState.remainingPlayers.splice(idx, 1);
+      draftState.currentStep = 2;
+    } else if (draftState.currentStep === 2) {
+      // Club entfernt -> Duo fertig! Reset auf P1 für nächstes Team
+      const idx = draftState.remainingClubs.indexOf(draftState.lastDrawnItem);
+      if (idx !== -1) draftState.remainingClubs.splice(idx, 1);
+      draftState.tempP1 = null;
+      draftState.tempP2 = null;
+      draftState.currentStep = 0;
     }
   }
 
-  draftState.currentIndex++;
-  draftState.lastDrawnClub = null;
+  draftState.lastDrawnItem = null;
   draftState.targetAngle = 0;
   draftState.startTime = null;
   draftState.spinning = false;
+  
   saveData();
+  handleLiveDraftUI();
 }
 
 function finishDraft() {
@@ -637,7 +696,9 @@ function finishDraft() {
   teams = [...draftState.pairs];
   draftState.active = false;
   saveData();
-  showTab('teams');
+  if (typeof showTab === 'function') showTab('teams');
+  renderAll();
+  alert("🎉 Auslosung beendet! Die Teams wurden geladen.");
 }
 
 // 7. Standard Admin Handlungen
