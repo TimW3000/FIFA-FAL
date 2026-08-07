@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FAL FIFA Turnier</title>
+  <link rel="stylesheet" href="style.css">
+  
+  <!-- Firebase App & Database SDKs -->
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+</head>
+<body>
+
+  <!-- ROLLEN- / LOGIN-MODAL -->
+  <div id="role-selection-modal" class="modal-overlay">
+    <div class="modal-content">
+      <img src="https://spvgg-fal.de/templates/yootheme/cache/dc/Logo-2017-web-dc30d58a.webp" class="modal-logo" alt="SpVgg FAL Logo">
+      <h2>Willkommen beim FAL FIFA Turnier!</h2>
+      <p style="margin-bottom: 20px; opacity: 0.9;">Bitte wähle aus, wie du fortfahren möchtest:</p>
+      
+      <div id="role-options">
+        <button class="btn-primary role-btn" id="btn-show-existing">?? Spieler auswählen</button>
+        <button class="btn-secondary role-btn" id="btn-show-new">? Neuer Spieler</button>
+        <button class="btn-secondary role-btn" id="btn-enter-spectator" style="margin-top: 15px; opacity: 0.8;">??? Nur als Zuschauer reinschauen</button>
+      </div>
+
+      <div id="existing-players-select" style="display: none;">
+        <h3>Wähle deinen Namen aus:</h3>
+        <div id="existing-players-list" style="max-height: 200px; overflow-y: auto; margin-bottom: 15px;"></div>
+        <button class="btn-secondary btn-reset-role">Zurück</button>
+      </div>
+
+      <div id="new-player-select" style="display: none;">
+        <h3>Neuen Spieler eintragen</h3>
+        <input type="text" id="self-player-name" placeholder="Dein Name..." style="width: 100%; margin-bottom: 10px;">
+        <button class="btn-primary role-btn" id="btn-register-new">Eintragen & Weiter</button>
+        <button class="btn-secondary btn-reset-role" style="margin-top: 5px;">Zurück</button>
+      </div>
+
+      <div id="admin-password-select" style="display: none;">
+        <h3 id="password-prompt-text">?? Bitte Passwort eingeben</h3>
+        <input type="password" id="admin-password-input" placeholder="Passwort..." style="width: 100%; margin-bottom: 10px;">
+        <button class="btn-primary role-btn" id="btn-confirm-admin">Bestätigen</button>
+        <button class="btn-secondary btn-reset-role" style="margin-top: 5px;">Zurück</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- INTERAKTIVE AUSLOSUNG SHOW-MODAL (GLÜCKSRAD) -->
+  <div id="draft-modal" class="modal-overlay" style="display: none;">
+    <div class="modal-content" style="max-width: 500px; padding: 25px;">
+      <h2 style="color: var(--fal-yellow); margin-top:0;">?? LIVE-AUSLOSUNG</h2>
+      <div id="draft-stage">
+        <!-- Dynamischer Inhalt für die Schritte -->
+      </div>
+    </div>
+  </div>
+
+  <!-- HEADER & APP CONTAINER -->
+  <header id="app-header" style="display: none;">
+    <div id="header-brand">
+      <img src="https://spvgg-fal.de/templates/yootheme/cache/dc/Logo-2017-web-dc30d58a.webp" id="header-logo" alt="SpVgg FAL Logo">
+      <h1>FAL FIFA Turnier</h1>
+    </div>
+    <div id="user-badge-container">
+      <span id="user-badge"></span>
+      <button class="btn-secondary btn-sm" id="btn-switch-user" style="margin-left: 10px;">Wechseln</button>
+    </div>
+  </header>
+
+  <nav id="app-nav" style="display: none;">
+    <button class="tab-btn active" id="btn-home" onclick="showTab('home')">?? Home</button>
+    <button class="tab-btn" id="btn-teams" onclick="showTab('teams')">?? Teams</button>
+    <button class="tab-btn" id="btn-groups" onclick="showTab('groups')">?? Gruppen</button>
+    <button class="tab-btn" id="btn-matches" onclick="showTab('matches')">?? Spiele</button>
+    <button class="tab-btn" id="btn-admin" onclick="showTab('admin')" style="display: none;">?? Admin</button>
+  </nav>
+
+  <main id="app-main" style="display: none;">
+   <!-- HOME TAB -->
+    <section id="tab-home" class="tab-content active">
+      <h2>?? Übersicht</h2>
+
+      <div class="admin-card">
+        <h3 style="margin-top:0;">?? Turnierregeln</h3>
+        <div id="rules-content"></div>
+      </div>
+
+      <div class="admin-card">
+        <h3 style="margin-top:0;">?? Tippspiel: Wer holt den Pokal?</h3>
+        <div id="tip-content"></div>
+      </div>
+
+      <div class="admin-card">
+        <h3 style="margin-top:0;">?? Live-Dashboard</h3>
+        <div id="dashboard-content"></div>
+      </div>
+
+      <!-- ========================================== -->
+      <!-- ?? HIER STARTET DER WETT-KONTO SCHNIPSEL   -->
+      <!-- ========================================== -->
+      <div class="admin-card" style="margin-top: 20px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 10px;">
+          <h3 style="color:var(--fal-yellow, #f1c40f); margin:0;">?? Wettschein & FAL-Coins</h3>
+          <div style="background: rgba(241, 196, 15, 0.2); border: 1px solid var(--fal-yellow, #f1c40f); padding: 6px 14px; border-radius: 20px; font-weight: bold; font-size: 1em;">
+            ?? Mein Kontostand: <span id="user-coin-balance" style="color: var(--fal-yellow, #f1c40f);">100</span> FAL-Coins
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 20px;" class="betting-grid-responsive">
+          <!-- NÄCHSTE SPIELE ZUM WETTEN -->
+          <div>
+            <h4 style="margin-top: 0; opacity: 0.9;">?? Nächste Spiele zum Wetten</h4>
+            <div id="betting-matches-list">
+              <p style="opacity: 0.7;">Noch keine Spiele zum Wetten verfügbar.</p>
+            </div>
+          </div>
+
+          <!-- WETT-LEADERBOARD -->
+          <div style="background: rgba(0,0,0,0.25); padding: 15px; border-radius: 8px;">
+            <h4 style="margin-top: 0; color: var(--fal-yellow, #f1c40f);">?? Highroller Ranking</h4>
+            <div id="betting-leaderboard">
+              <!-- Dynamische Rangliste -->
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- ========================================== -->
+
+    </section>
+    <!-- TEAMS TAB -->
+    <section id="tab-teams" class="tab-content">
+      <h2>Angemeldete Teams</h2>
+      <div id="teams-container" class="grid-container"></div>
+    </section>
+
+    <!-- GRUPPEN TAB -->
+    <section id="tab-groups" class="tab-content">
+      <h2>Gruppenphase & Tabellen</h2>
+      <div id="groups-container" class="grid-container"></div>
+    </section>
+
+    <!-- SPIELE TAB -->
+    <section id="tab-matches" class="tab-content">
+      <h2>Spielplan & Ergebnisse</h2>
+      <h3>Gruppenspiele</h3>
+      <div id="group-matches-list"></div>
+      <hr style="margin: 30px 0; border: 0; border-top: 1px solid var(--fal-blue-light);">
+      <h3>KO-Phase</h3>
+      <div id="ko-matches-list"></div>
+    </section>
+
+    <!-- ADMIN TAB -->
+    <section id="tab-admin" class="tab-content">
+      <h2>Admin-Bereich</h2>
+      
+      <div class="admin-card">
+        <h3>Spieler verwalten</h3>
+        <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+          <input type="text" id="new-player-name" placeholder="Spielername eingeben...">
+          <button class="btn-primary" onclick="addPlayer()">Hinzufügen</button>
+        </div>
+        <div id="admin-player-list"></div>
+      </div>
+
+      <div class="admin-card">
+        <h3>? Profi-Mannschaften für Auslosung</h3>
+        <p style="font-size:0.85em; opacity:0.8;">Diese Teams stehen für das Glücksrad zur Verfügung:</p>
+        <div style="display: flex; gap: 10px; margin-bottom: 10px;">
+          <input type="text" id="new-club-name" placeholder="Club hinzufügen (z.B. FC Bayern)...">
+          <button class="btn-primary" onclick="addClub()">+</button>
+        </div>
+        <div id="admin-club-list" style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:12px;"></div>
+        <button class="btn-secondary btn-sm" onclick="resetClubsToDefault()">Standard-Topteams laden</button>
+      </div>
+
+      <div class="admin-card">
+        <h3>Turnier-Steuerung</h3>
+        <div style="display: flex; flex-wrap: wrap; gap: 10px;">
+          <button class="btn-primary" style="background-color:#ffc800; color:#000;" onclick="startInteractiveDraft()">?? Teams & Clubs Zelebrieren (Auslosung)</button>
+          <button class="btn-primary" onclick="drawGroups()">?? Gruppen & Spielplan erstellen</button>
+          <button class="btn-primary" onclick="drawKOPhase()">?? Viertelfinale auslosen</button>
+          <button class="btn-danger" onclick="resetTournament()">??? Turnier komplett zurücksetzen</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="script.js"></script>
+</body>
+</html>
