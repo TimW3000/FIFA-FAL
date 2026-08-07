@@ -773,39 +773,26 @@ function removePlayerPassword(index) {
   }
 }
 
-// 8. Gruppen & KO-Phase Logik
+// 7. FESTE GRUPPEN-AUSLOSUNG (Immer 3 Gruppen A, B, C für je 3 Teams)
 function drawGroups() {
   if (!isAdmin()) return;
-  if (teams.length < 4) return alert('Du benötigst mindestens 4 Teams für Gruppen!');
-
-  let choice = prompt(
-    `Du hast aktuell ${teams.length} Teams.\n\n` +
-    `Wähle den Turniermodus:\n` +
-    `1 = 2 Gruppen (Top 2 je Gruppe direkt ins HALBFINALE)\n` +
-    `2 = 4 Gruppen (Top 2 je Gruppe ins VIERTELFINALE)\n\n` +
-    `Eingabe (1 oder 2):`, 
-    teams.length <= 8 ? "1" : "2"
-  );
-
-  if (!choice) return;
-
-  let groupLetters = [];
-  if (choice.trim() === "1") {
-    groupLetters = ['Gruppe A', 'Gruppe B'];
-  } else if (choice.trim() === "2") {
-    groupLetters = ['Gruppe A', 'Gruppe B', 'Gruppe C', 'Gruppe D'];
-  } else {
-    return alert('Ungültige Auswahl! Bitte 1 oder 2 eingeben.');
+  if (!teams || teams.length < 3) {
+    return alert(`Du benötigst mindestens 3 Teams (aktuell: ${teams ? teams.length : 0}).`);
   }
 
-  if (confirm(`Gruppen neu auslosen (${groupLetters.length} Gruppen) & Spielplan erstellen?`)) {
+  if (confirm('Möchtest du die Teams jetzt zufällig auf 3 Gruppen verteilen und den Spielplan erstellen?')) {
+    const groupLetters = ['Gruppe A', 'Gruppe B', 'Gruppe C'];
     const shuffledTeams = [...teams].sort(() => Math.random() - 0.5);
+
+    // 1. Gruppen A, B, C anlegen
     groups = groupLetters.map(letter => ({ letter, teams: [] }));
-    
+
+    // 2. Teams gleichmäßig verteilen (3 Teams pro Gruppe bei 9 Teams)
     shuffledTeams.forEach((team, index) => {
       groups[index % groups.length].teams.push(team.id);
     });
 
+    // 3. Jeder gegen jeden innerhalb der Gruppen generieren
     let rawGroupMatches = [];
     groups.forEach(group => {
       const gTeams = group.teams;
@@ -823,12 +810,13 @@ function drawGroups() {
       }
     });
 
+    // 4. Spiele abwechselnd anordnen (Gruppe A -> B -> C -> A...)
     let matchesByGroup = {};
     groupLetters.forEach(l => { matchesByGroup[l] = rawGroupMatches.filter(m => m.group === l); });
 
     let interleavedMatches = [];
     let maxLen = Math.max(...Object.values(matchesByGroup).map(arr => arr.length));
-    
+
     for (let i = 0; i < maxLen; i++) {
       groupLetters.forEach(l => {
         if (matchesByGroup[l][i]) {
@@ -837,47 +825,21 @@ function drawGroups() {
       });
     }
 
+    // 5. IDs & Slots zuweisen
     groupMatches = [];
     let matchId = 1;
-    let slotCounter = 1;
-
-    for (let i = 0; i < interleavedMatches.length; i += 2) {
-      let m1 = interleavedMatches[i];
-      let m2 = interleavedMatches[i + 1];
-
-      m1.id = matchId++;
-      m1.court = 'Hauptplatz';
-      m1.slot = slotCounter;
-      groupMatches.push(m1);
-
-      if (m2) {
-        if (m2.t1Id === m1.t1Id || m2.t1Id === m1.t2Id || m2.t2Id === m1.t1Id || m2.t2Id === m1.t2Id) {
-          let swapIdx = interleavedMatches.findIndex((candidate, cIdx) => 
-            cIdx > i + 1 && 
-            candidate.t1Id !== m1.t1Id && candidate.t1Id !== m1.t2Id &&
-            candidate.t2Id !== m1.t1Id && candidate.t2Id !== m1.t2Id
-          );
-
-          if (swapIdx !== -1) {
-            let temp = interleavedMatches[i + 1];
-            interleavedMatches[i + 1] = interleavedMatches[swapIdx];
-            interleavedMatches[swapIdx] = temp;
-            m2 = interleavedMatches[i + 1];
-          }
-        }
-
-        m2.id = matchId++;
-        m2.court = 'Nebenplatz';
-        m2.slot = slotCounter;
-        groupMatches.push(m2);
-      }
-
-      slotCounter++;
-    }
+    interleavedMatches.forEach((match, idx) => {
+      match.id = matchId++;
+      match.slot = idx + 1;
+      groupMatches.push(match);
+    });
 
     koMatches = [];
     saveData();
-    showTab('groups');
+    if (typeof showTab === 'function') showTab('groups');
+    if (typeof renderAll === 'function') renderAll();
+    
+    alert('🎉 3 Gruppen wurden erfolgreich ausgelost und der Spielplan steht!');
   }
 }
 
