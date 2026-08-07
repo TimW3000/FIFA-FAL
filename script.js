@@ -518,32 +518,36 @@ function renderDraftStep() {
 function startWheelAnimationLoop() {
   if (animFrameId) cancelAnimationFrame(animFrameId);
 
-  function update() {
+  function animate() {
     if (!draftState || !draftState.active) return;
 
     let currentAngle = 0;
 
     if (draftState.spinning && draftState.startTime) {
-      const now = Date.now();
-      const elapsed = now - draftState.startTime;
-      const progress = Math.min(elapsed / draftState.duration, 1);
+      const elapsed = Date.now() - draftState.startTime;
+      const progress = Math.min(elapsed / (draftState.duration || 4000), 1);
       
+      // Sanftes Abbremsen (Easing)
       const easeOut = 1 - Math.pow(1 - progress, 3);
-      currentAngle = easeOut * draftState.targetAngle;
+      currentAngle = (draftState.targetAngle || 0) * easeOut;
 
-      if (progress < 1) {
-        animFrameId = requestAnimationFrame(update);
-      } else {
-        currentAngle = draftState.targetAngle;
+      if (progress >= 1) {
+        // Animation beendet -> Loop stoppen
+        drawWheelCanvas(draftState.targetAngle);
+        return;
       }
-    } else if (draftState.lastDrawnClub) {
-      currentAngle = draftState.targetAngle;
+    } else {
+      currentAngle = draftState.targetAngle || 0;
     }
 
     drawWheelCanvas(currentAngle);
+
+    if (draftState.spinning) {
+      animFrameId = requestAnimationFrame(animate);
+    }
   }
 
-  update();
+  animFrameId = requestAnimationFrame(animate);
 }
 
 function drawWheelCanvas(angleOffset) {
