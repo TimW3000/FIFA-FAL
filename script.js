@@ -1750,3 +1750,31 @@ function evaluateBetsForMatch(matchId) {
 
   saveData();
 }
+// Abbruch-Funktion für den Admin
+function cancelDraft() {
+  if (!isAdmin()) return;
+  
+  if (confirm("Möchtest du die Auslosung wirklich abbrechen und zurücksetzen?")) {
+    if (typeof animFrameId !== 'undefined' && animFrameId) {
+      cancelAnimationFrame(animFrameId);
+    }
+    
+    draftState = {
+      active: false,
+      spinning: false,
+      currentStep: 0,
+      tempP1: null,
+      tempP2: null,
+      lastDrawnItem: null
+    };
+
+    saveData();
+    
+    // Modal schließen
+    const modal = document.getElementById('draft-modal');
+    if (modal) modal.style.display = 'none';
+    
+    renderAll();
+    alert("Auslosung wurde zurückgesetzt!");
+  }
+}
