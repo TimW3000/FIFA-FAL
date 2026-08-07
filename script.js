@@ -25,6 +25,7 @@ window.confirmMatchResult = confirmMatchResult;
 window.addClub = addClub;
 window.removeClub = removeClub;
 window.resetClubsToDefault = resetClubsToDefault;
+window.setClubLogo = setClubLogo;
 window.startInteractiveDraft = startInteractiveDraft;
 window.spinWheel = spinWheel;
 window.nextDraftStep = nextDraftStep;
@@ -60,9 +61,33 @@ const DEFAULT_CLUBS = [
 
 const DEFAULT_RULES = "Noch keine Regeln festgelegt. Der Admin kann sie hier eintragen.";
 
+// Feste 18er-Farbpalette fürs Glücksrad (Spieler & unbekannte Clubs)
+const COLOR_PALETTE_18 = [
+  '#e74c3c', '#3498db', '#2ecc71', '#f1c40f', '#9b59b6', '#1abc9c',
+  '#e67e22', '#ff6b81', '#00cec9', '#fd79a8', '#6c5ce7', '#00b894',
+  '#0984e3', '#d63031', '#55efc4', '#a29bfe', '#fab1a0', '#74b9ff'
+];
+
+// Bekannte Vereinsfarben für die Standard-Topteams
+const KNOWN_CLUB_COLORS = {
+  "Real Madrid": "#FEBE10",
+  "FC Bayern": "#DC052D",
+  "ManCity": "#6CABDD",
+  "Arsenal": "#EF0107",
+  "FC Barcelona": "#A50044",
+  "PSG": "#004170",
+  "Inter Mailand": "#0068A8",
+  "Leverkusen": "#E32221",
+  "Liverpool": "#C8102E",
+  "ManU": "#DA291C",
+  "Atletico": "#CE3524",
+  "BVB": "#FDE100"
+};
+
 // 2. Zustand
 let players = [];
 let availableClubs = [...DEFAULT_CLUBS];
+let clubLogos = {};     // { clubName: "https://...wappen.png" }
 let teams = [];
 let groups = [];
 let groupMatches = [];
@@ -111,6 +136,26 @@ function getMyTeam() {
 function isTournamentFinished() {
   const finale = koMatches.find(m => m.round === '🏆 FINALE');
   return !!(finale && finale.confirmed);
+}
+
+// Gibt ein kleines <img>-Wappen zurück, falls für den Club eine Logo-URL hinterlegt ist
+function clubLogoImg(clubName, size) {
+  size = size || 18;
+  if (!clubName || !clubLogos[clubName]) return '';
+  return `<img src="${clubLogos[clubName]}" alt="${clubName}" style="height:${size}px; width:${size}px; object-fit:contain; vertical-align:middle; border-radius:3px; margin-right:5px; background:#fff;">`;
+}
+
+function setClubLogo(clubName) {
+  if (!hasElevated()) return;
+  const current = clubLogos[clubName] || '';
+  const url = prompt(`Wappen-Bild-URL für ${clubName} eingeben (leer lassen zum Entfernen):`, current);
+  if (url === null) return;
+  if (url.trim() === '') {
+    delete clubLogos[clubName];
+  } else {
+    clubLogos[clubName] = url.trim();
+  }
+  saveData();
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -323,6 +368,7 @@ db.ref('tournament').on('value', (snapshot) => {
 
   players = rawPlayers.map(p => typeof p === 'string' ? { name: p, isRef: false, password: null } : p);
   availableClubs = data.availableClubs || [...DEFAULT_CLUBS];
+  clubLogos = data.clubLogos || {};
   teams = data.teams || [];
   groups = data.groups || [];
   groupMatches = data.groupMatches || [];
@@ -336,6 +382,19 @@ db.ref('tournament').on('value', (snapshot) => {
   userBalances = data.userBalances || {};
   bets = data.bets || [];
 
+  // Falls das Turnier zurückgesetzt wurde (oder der eigene Spieler entfernt wurde),
+  // wird man automatisch zurück zum Auswahlbildschirm geschickt.
+  if (myPlayerName && !getPlayerObj(myPlayerName)) {
+    myPlayerName = null;
+    localStorage.removeItem('fifa_my_player');
+    document.getElementById('app-header').style.display = 'none';
+    document.getElementById('app-nav').style.display = 'none';
+    document.getElementById('app-main').style.display = 'none';
+    resetRoleSelection();
+    document.getElementById('role-selection-modal').style.display = 'flex';
+    return;
+  }
+
   renderAll();
   handleLiveDraftUI();
 });
@@ -344,6 +403,7 @@ function saveData() {
   db.ref('tournament').set({
     players,
     availableClubs,
+    clubLogos,
     teams,
     groups,
     groupMatches,
@@ -1320,7 +1380,7 @@ function renderTeams() {
   container.innerHTML = teams.map(t => {
     const isMyTeam = (myPlayerName && (t.p1 === myPlayerName || t.p2 === myPlayerName));
     const canEditName = hasElevated() || isMyTeam;
-    const clubBadgeHtml = t.club ? `<div class="club-badge">⚽ ${t.club}</div>` : '';
+    const clubBadgeHtml = t.club ? `<div class="club-badge">${clubLogoImg(t.club, 18)}${t.club}</div>` : '';
 
     return `
       <div class="admin-card ${isMyTeam ? 'highlight-me' : ''}">
@@ -1584,7 +1644,9 @@ function renderAdminPanel() {
   if (clubListEl) {
     clubListEl.innerHTML = availableClubs.map((club, index) => `
       <span class="club-badge">
-        ${club} <span style="cursor:pointer; color:#ff4d4d; font-weight:bold; margin-left:4px;" onclick="removeClub(${index})">×</span>
+        ${clubLogoImg(club, 16)}${club}
+        <span style="cursor:pointer;" title="Wappen-URL setzen" onclick="setClubLogo('${club.replace(/'/g, "\\'")}')">🖼️</span>
+        <span style="cursor:pointer; color:#ff4d4d; font-weight:bold; margin-left:4px;" onclick="removeClub(${index})">×</span>
       </span>
     `).join('');
   }
