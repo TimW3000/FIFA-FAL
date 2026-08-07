@@ -134,25 +134,11 @@ main {
   width: 100%;
 }
 
-.tab-content {
-  display: none;
-}
+.tab-content { display: none; }
+.tab-content.active { display: block; }
 
-.tab-content.active {
-  display: block;
-}
-
-.tab-content h2 {
-  font-size: 1.2rem;
-  margin-top: 5px;
-  margin-bottom: 15px;
-}
-
-.tab-content h3 {
-  font-size: 1.05rem;
-  color: var(--fal-yellow);
-  margin-top: 15px;
-}
+.tab-content h2 { font-size: 1.2rem; margin-top: 5px; margin-bottom: 15px; }
+.tab-content h3 { font-size: 1.05rem; color: var(--fal-yellow); margin-top: 15px; }
 
 /* Buttons & Inputs */
 button {
@@ -163,12 +149,7 @@ button {
   touch-action: manipulation;
 }
 
-.role-btn {
-  width: 100%;
-  padding: 14px;
-  margin: 6px 0;
-  font-size: 0.95em;
-}
+.role-btn { width: 100%; padding: 14px; margin: 6px 0; font-size: 0.95em; }
 
 .btn-primary {
   background-color: var(--fal-yellow);
@@ -177,15 +158,8 @@ button {
   padding: 10px 14px;
   font-size: 0.9rem;
 }
-
-.btn-primary:active {
-  transform: scale(0.98);
-}
-
-.btn-primary:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
+.btn-primary:active { transform: scale(0.98); }
+.btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .btn-secondary {
   background-color: transparent;
@@ -194,11 +168,7 @@ button {
   padding: 10px 14px;
   font-size: 0.9rem;
 }
-
-.btn-secondary:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
+.btn-secondary:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .btn-danger {
   background-color: var(--fal-red);
@@ -208,13 +178,9 @@ button {
   font-size: 0.9rem;
 }
 
-.btn-sm {
-  padding: 6px 10px;
-  font-size: 0.8rem;
-  border-radius: 6px;
-}
+.btn-sm { padding: 6px 10px; font-size: 0.8rem; border-radius: 6px; }
 
-input[type="text"], input[type="password"], input[type="number"] {
+input[type="text"], input[type="password"], input[type="number"], select {
   background: #081220;
   border: 1px solid var(--fal-blue-primary);
   color: white;
@@ -234,10 +200,7 @@ textarea {
   resize: vertical;
 }
 
-input:focus, textarea:focus {
-  outline: none;
-  border-color: var(--fal-yellow);
-}
+input:focus, textarea:focus, select:focus { outline: none; border-color: var(--fal-yellow); }
 
 /* Cards & Grid */
 .grid-container {
@@ -248,9 +211,7 @@ input:focus, textarea:focus {
 }
 
 @media (min-width: 600px) {
-  .grid-container {
-    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  }
+  .grid-container { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
 }
 
 .admin-card {
@@ -267,28 +228,15 @@ input:focus, textarea:focus {
 }
 
 /* Spinning Wheel Styles */
-.wheel-container {
-  position: relative;
-  width: 260px;
-  height: 260px;
-  margin: 15px auto;
-}
-
+.wheel-container { position: relative; width: 260px; height: 260px; margin: 15px auto; }
 #wheel-canvas {
-  width: 100%;
-  height: 100%;
-  border-radius: 50%;
+  width: 100%; height: 100%; border-radius: 50%;
   border: 4px solid var(--fal-yellow);
   box-shadow: 0 0 15px rgba(255, 200, 0, 0.4);
 }
-
 .wheel-pointer {
-  position: absolute;
-  top: -12px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 0; 
-  height: 0; 
+  position: absolute; top: -12px; left: 50%; transform: translateX(-50%);
+  width: 0; height: 0;
   border-left: 12px solid transparent;
   border-right: 12px solid transparent;
   border-top: 22px solid #ff4d4d;
@@ -308,29 +256,10 @@ input:focus, textarea:focus {
 }
 
 /* Tables & Matches */
-.table-container {
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-  margin-top: 8px;
-}
-
-table {
-  width: 100%;
-  border-collapse: collapse;
-  text-align: left;
-  font-size: 0.88rem;
-}
-
-th, td {
-  padding: 8px 6px;
-  border-bottom: 1px solid rgba(255,255,255,0.1);
-}
-
-th {
-  color: var(--fal-yellow);
-  font-size: 0.8rem;
-  text-transform: uppercase;
-}
+.table-container { overflow-x: auto; -webkit-overflow-scrolling: touch; margin-top: 8px; }
+table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.88rem; }
+th, td { padding: 8px 6px; border-bottom: 1px solid rgba(255,255,255,0.1); }
+th { color: var(--fal-yellow); font-size: 0.8rem; text-transform: uppercase; }
 
 .match-card {
   background: var(--fal-blue-primary);
@@ -343,157 +272,39 @@ th {
   border: 1px solid rgba(255,255,255,0.05);
 }
 
-.court-badge {
-  font-size: 0.7rem;
-  padding: 3px 7px;
-  border-radius: 4px;
-  font-weight: bold;
-}
-
+.court-badge { font-size: 0.7rem; padding: 3px 7px; border-radius: 4px; font-weight: bold; }
 .court-main { background-color: #2e7d32; color: white; }
 .court-side { background-color: #1565c0; color: white; }
 
-.empty-state {
-  opacity: 0.6;
-  font-style: italic;
-  font-size: 0.9rem;
-}
+.status-badge { font-size: 0.7rem; padding: 3px 8px; border-radius: 4px; font-weight: bold; }
+.status-open { background: rgba(255,255,255,0.15); color: #ccc; }
+.status-provisional { background: rgba(255,200,0,0.2); color: var(--fal-yellow); border: 1px solid var(--fal-yellow); }
+.status-confirmed { background: rgba(46, 204, 113, 0.2); color: #2ecc71; border: 1px solid #2ecc71; }
+
+.empty-state { opacity: 0.6; font-style: italic; font-size: 0.9rem; }
 
 /* Home: Tipp-Buttons */
-.tip-row {
-  margin-bottom: 12px;
-}
-
-.tip-btn {
-  width: 100%;
-  text-align: left;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 10px;
-}
-
-.tip-bar-track {
-  background: #081220;
-  border-radius: 6px;
-  height: 6px;
-  overflow: hidden;
-  margin-top: 5px;
-}
-
-.tip-bar-fill {
-  background: var(--fal-yellow);
-  height: 100%;
-  transition: width 0.4s ease;
-}
+.tip-row { margin-bottom: 12px; }
+.tip-btn { width: 100%; text-align: left; display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.tip-bar-track { background: #081220; border-radius: 6px; height: 6px; overflow: hidden; margin-top: 5px; }
+.tip-bar-fill { background: var(--fal-yellow); height: 100%; transition: width 0.4s ease; }
 
 /* Home: Dashboard-Kacheln */
-.stat-tile {
-  margin: 0;
-}
+.stat-tile { margin: 0; }
+.stat-tile p.stat-label { opacity: 0.8; margin: 0 0 4px 0; font-size: 0.85em; }
+.stat-tile p.stat-value { font-size: 1.1em; font-weight: bold; margin: 0; }
 
-.stat-tile p.stat-label {
-  opacity: 0.8;
-  margin: 0 0 4px 0;
-  font-size: 0.85em;
-}
+.rules-text { white-space: pre-wrap; margin: 0; line-height: 1.5; }
 
-.stat-tile p.stat-value {
-  font-size: 1.1em;
-  font-weight: bold;
-  margin: 0;
-}
+/* WETT-KONTO & QUOTEN */
+.bet-card { background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px; padding: 12px; margin-bottom: 12px; }
 
-.rules-text {
-  white-space: pre-wrap;
-  margin: 0;
-  line-height: 1.5;
-}
-/* ==========================================
-   WETT-KONTO & QUOTEN STYLES
-   ========================================== */
-.bet-card {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 8px;
-  padding: 12px;
-  margin-bottom: 12px;
-}
+.bet-input-row { display: flex; gap: 8px; margin-top: 10px; align-items: center; flex-wrap: wrap; }
+.bet-input-row input { width: 90px; padding: 6px; border-radius: 4px; border: 1px solid #444; background: #1e1e1e; color: #fff; text-align: center; }
+.bet-input-row select { flex: 2; padding: 6px; }
 
-.bet-odds-group {
-  display: flex;
-  gap: 8px;
-  margin-top: 10px;
-}
-
-.btn-odd {
-  flex: 1;
-  background: #1a252f;
-  border: 1px solid #34495e;
-  color: #fff;
-  padding: 8px 4px;
-  border-radius: 6px;
-  cursor: pointer;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  transition: all 0.2s ease;
-}
-
-.btn-odd:hover:not(:disabled) {
-  background: #2c3e50;
-  border-color: var(--fal-yellow, #f1c40f);
-}
-
-.btn-odd.active {
-  background: var(--fal-yellow, #f1c40f);
-  color: #000;
-  font-weight: bold;
-}
-
-.btn-odd:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.odd-val {
-  font-size: 0.85em;
-  opacity: 0.8;
-  margin-top: 2px;
-}
-
-.btn-odd.active .odd-val {
-  color: #000;
-  font-weight: bold;
-}
-
-.bet-input-row {
-  display: flex;
-  gap: 8px;
-  margin-top: 10px;
-  align-items: center;
-}
-
-.bet-input-row input {
-  width: 90px;
-  padding: 6px;
-  border-radius: 4px;
-  border: 1px solid #444;
-  background: #1e1e1e;
-  color: #fff;
-  text-align: center;
-}
-
-.leaderboard-item {
-  display: flex;
-  justify-content: space-between;
-  padding: 6px 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-  font-size: 0.9em;
-}
+.leaderboard-item { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.05); font-size: 0.9em; }
 
 @media (max-width: 768px) {
-  .betting-grid-responsive {
-    grid-template-columns: 1fr !important;
-  }
+  .betting-grid-responsive { grid-template-columns: 1fr !important; }
 }
