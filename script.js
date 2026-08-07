@@ -473,7 +473,7 @@ function renderDraftStep() {
     return;
   }
 
-  const currentTeamNum = teams.length + 1;
+  const currentTeamNum = (draftState.pairs ? draftState.pairs.length : teams.length) + 1;
   let stepText = '';
   if (draftState.currentStep === 0) stepText = '🎰 Step 1: Lose <strong>Spieler 1</strong>';
   else if (draftState.currentStep === 1) stepText = `🎰 Step 2: Lose <strong>Spieler 2</strong> (Partner für ${draftState.tempP1})`;
@@ -488,8 +488,8 @@ function renderDraftStep() {
       <strong>${draftState.tempP1 ? draftState.tempP1 : '???'}</strong> & <strong>${draftState.tempP2 ? draftState.tempP2 : '???'}</strong>
     </div>
 
-    <div class="wheel-container">
-      <div class="wheel-pointer"></div>
+    <div class="wheel-container" style="position:relative; width:260px; margin:0 auto;">
+      <div class="wheel-pointer" style="position:absolute; top:-10px; left:50%; transform:translateX(-50%); width:0; height:0; border-left:10px solid transparent; border-right:10px solid transparent; border-top:15px solid red; z-index:10;"></div>
       <canvas id="wheel-canvas" width="260" height="260"></canvas>
     </div>
 
@@ -498,11 +498,23 @@ function renderDraftStep() {
     </div>
 
     ${isAdmin() ? `
-      ${!draftState.spinning ? `
-        <button class="btn-primary role-btn" id="btn-spin-wheel" style="margin-top:10px;" onclick="spinWheel()">
-          🎰 Rad drehen
+      <div style="margin-top:15px; display:flex; gap:10px; justify-content:center;">
+        ${!draftState.spinning && !draftState.lastDrawnItem ? `
+          <button class="btn-primary role-btn" id="btn-spin-wheel" onclick="spinWheel()">
+            🎰 Rad drehen
+          </button>
+        ` : ''}
+
+        ${!draftState.spinning && draftState.lastDrawnItem ? `
+          <button class="btn-primary role-btn" onclick="nextDraftStep()">
+            Weiter ➡️
+          </button>
+        ` : ''}
+
+        <button class="btn-secondary role-btn" style="background:#e74c3c; color:white; border:none;" onclick="cancelDraft()">
+          🛑 Abbrechen
         </button>
-      ` : ''}
+      </div>
     ` : `
       <p style="font-size:0.9em; opacity:0.8; margin-top:10px;">
         ${draftState.spinning ? '🎰 Das Rad dreht sich live...' : 'Der Admin dreht gleich am Rad!'}
