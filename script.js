@@ -1,4 +1,4 @@
-// Global verf�gbar machen
+// Global verfügbar machen
 window.showExistingPlayers = showExistingPlayers;
 window.showNewPlayerInput = showNewPlayerInput;
 window.resetRoleSelection = resetRoleSelection;
@@ -147,8 +147,8 @@ function enterAsSpectator() {
   const userBadge = document.getElementById('user-badge');
   if (userBadge) {
     let roleTag = '';
-    if (isAdmin()) roleTag = '? (Admin)';
-    else if (isRef()) roleTag = '?? (Ref)';
+    if (isAdmin()) roleTag = '⭐ (Admin)';
+    else if (isRef()) roleTag = '🟨 (Ref)';
 
     userBadge.innerHTML = myPlayerName 
       ? `Angemeldet als: <strong>${myPlayerName}</strong> ${roleTag}`
@@ -189,7 +189,7 @@ function showExistingPlayers() {
   } else {
     container.innerHTML = players.map(p => `
       <button class="btn-secondary" style="margin: 4px; width: auto;" onclick="selectMyPlayer('${p.name}')">
-        ${p.name} ${p.isRef ? '??' : ''} ${p.password ? '??' : ''}
+        ${p.name} ${p.isRef ? '🟨' : ''} ${p.password ? '🔒' : ''}
       </button>
     `).join('');
   }
@@ -212,12 +212,12 @@ function selectMyPlayer(name) {
   const pObj = getPlayerObj(name);
 
   if (name.trim().toLowerCase() === 'tim') {
-    promptPassword('admin', name, '?? Zugang gesperrt!');
+    promptPassword('admin', name, '🔒 Zugang gesperrt!');
     return;
   }
 
   if (pObj && pObj.password) {
-    promptPassword('player', name, `?? Passwort f�r ${name} eingeben:`);
+    promptPassword('player', name, `🔒 Passwort für ${name} eingeben:`);
     return;
   }
   
@@ -232,7 +232,7 @@ function registerNewPlayer() {
   if (!name) return alert('Bitte Namen eingeben!');
 
   if (name.toLowerCase() === 'tim') {
-    promptPassword('admin', name, '?? Zugang gesperrt!');
+    promptPassword('admin', name, '🔒 Zugang gesperrt!');
     return;
   }
 
@@ -316,7 +316,7 @@ db.ref('tournament').on('value', (snapshot) => {
   tips = data.tips || {};
   draftState = data.draftState || { active: false, pairs: [], currentIndex: 0, remainingClubs: [], spinning: false, startTime: null, targetAngle: 0, duration: 4000, lastDrawnClub: null };
   
-  // Neu f�r das Wett-System:
+  // Neu für das Wett-System:
   userBalances = data.userBalances || {};
   bets = data.bets || [];
 
@@ -360,7 +360,7 @@ function removeClub(index) {
 
 function resetClubsToDefault() {
   if (!isAdmin()) return;
-  if (confirm('Verf�gbare Clubs auf Standard-Topteams zur�cksetzen?')) {
+  if (confirm('Verfügbare Clubs auf Standard-Topteams zurücksetzen?')) {
     availableClubs = [...DEFAULT_CLUBS];
     saveData();
   }
@@ -370,10 +370,10 @@ function resetClubsToDefault() {
 function startInteractiveDraft() {
   if (!isAdmin()) return;
   if (players.length < 2 || players.length % 2 !== 0) {
-    return alert(`Du ben�tigst eine gerade Anzahl an Spielern (aktuell: ${players.length}).`);
+    return alert(`Du benötigst eine gerade Anzahl an Spielern (aktuell: ${players.length}).`);
   }
   if (availableClubs.length < (players.length / 2)) {
-    return alert(`Du hast zu wenige Profi-Clubs in der Liste! Mindestens ${players.length / 2} ben�tigt.`);
+    return alert(`Du hast zu wenige Profi-Clubs in der Liste! Mindestens ${players.length / 2} benötigt.`);
   }
 
   if (confirm('Soll die Auslosungs-Show jetzt LIVE gestartet werden?')) {
@@ -435,9 +435,9 @@ function renderDraftStep() {
 
   if (draftState.currentIndex >= draftState.pairs.length) {
     stage.innerHTML = `
-      <h3 style="color:#4CAF50;">?? Alle Teams wurden gelost! ??</h3>
-      <p>Die Teams und zugelosten Fu�ballmannschaften stehen fest!</p>
-      ${isAdmin() ? `<button class="btn-primary role-btn" onclick="finishDraft()">Fertigstellen & Teams speichern</button>` : '<p style="color:var(--fal-yellow);">Warte auf Admin-Best�tigung...</p>'}
+      <h3 style="color:#4CAF50;">🎉 Alle Teams wurden gelost! 🎉</h3>
+      <p>Die Teams und zugelosten Fußballmannschaften stehen fest!</p>
+      ${isAdmin() ? `<button class="btn-primary role-btn" onclick="finishDraft()">Fertigstellen & Teams speichern</button>` : '<p style="color:var(--fal-yellow);">Warte auf Admin-Bestätigung...</p>'}
     `;
     return;
   }
@@ -448,7 +448,7 @@ function renderDraftStep() {
     <p style="font-size:0.9em; opacity:0.8;">Team ${draftState.currentIndex + 1} von ${draftState.pairs.length}</p>
     
     <div style="background:rgba(0,0,0,0.3); padding:15px; border-radius:10px; margin: 15px 0;">
-      <h3 style="margin:0 0 10px 0; color:var(--fal-yellow);">?? Spieler-Duo:</h3>
+      <h3 style="margin:0 0 10px 0; color:var(--fal-yellow);">👥 Spieler-Duo:</h3>
       <h2 style="margin:0; font-size:1.4em;">${currentPair.p1} & ${currentPair.p2}</h2>
     </div>
 
@@ -458,24 +458,24 @@ function renderDraftStep() {
     </div>
 
     <div id="spin-result" style="height: 35px; font-weight: bold; font-size: 1.2em; color: var(--fal-yellow); margin-top:5px;">
-      ${draftState.lastDrawnClub ? `? Gew�hlter Club: <u>${draftState.lastDrawnClub}</u>` : ''}
+      ${draftState.lastDrawnClub ? `⚽ Gewählter Club: <u>${draftState.lastDrawnClub}</u>` : ''}
     </div>
 
     ${isAdmin() ? `
       ${!draftState.spinning && !draftState.lastDrawnClub ? `
         <button class="btn-primary role-btn" id="btn-spin-wheel" style="margin-top:10px;" onclick="spinWheel()">
-          ?? Rad drehen
+          🎰 Rad drehen
         </button>
       ` : ''}
 
       ${!draftState.spinning && draftState.lastDrawnClub ? `
         <button class="btn-primary role-btn" style="margin-top:15px;" onclick="nextDraftStep()">
-          ${draftState.currentIndex + 1 < draftState.pairs.length ? 'Weiter zum n�chsten Team ??' : 'Auslosung abschlie�en ??'}
+          ${draftState.currentIndex + 1 < draftState.pairs.length ? 'Weiter zum nächsten Team ➡️' : 'Auslosung abschließen 🎉'}
         </button>
       ` : ''}
     ` : `
       <p style="font-size:0.9em; opacity:0.8; margin-top:10px;">
-        ${draftState.spinning ? '?? Das Rad dreht sich live...' : (draftState.lastDrawnClub ? 'Warte auf n�chstes Team...' : 'Der Admin dreht gleich am Rad!')}
+        ${draftState.spinning ? '🎰 Das Rad dreht sich live...' : (draftState.lastDrawnClub ? 'Warte auf nächstes Team...' : 'Der Admin dreht gleich am Rad!')}
       </p>
     `}
   `;
@@ -570,7 +570,7 @@ function spinWheel() {
   draftState.lastDrawnClub = null;
   saveData();
 
-  // Nach Ablauf der 4 Sekunden speichern wir das Endergebnis (Club wird HIER noch NICHT gel�scht)
+  // Nach Ablauf der 4 Sekunden speichern wir das Endergebnis (Club wird HIER noch NICHT gelöscht)
   setTimeout(() => {
     if (isAdmin() && draftState.spinning) {
       draftState.spinning = false;
@@ -584,7 +584,7 @@ function spinWheel() {
 function nextDraftStep() {
   if (!isAdmin()) return;
 
-  // HIER l�schen wir den Club erst sauber heraus, wenn es weitergeht!
+  // HIER löschen wir den Club erst sauber heraus, wenn es weitergeht!
   if (draftState.lastDrawnClub) {
     const idx = draftState.remainingClubs.indexOf(draftState.lastDrawnClub);
     if (idx !== -1) {
@@ -634,7 +634,7 @@ function toggleRef(index) {
 
 function setPlayerPassword(index) {
   if (!isAdmin()) return;
-  const pwd = prompt(`Neues Passwort f�r ${players[index].name} eingeben:`);
+  const pwd = prompt(`Neues Passwort für ${players[index].name} eingeben:`);
   if (pwd !== null) {
     if (pwd.trim() === '') return alert('Passwort darf nicht leer sein.');
     players[index].password = pwd.trim();
@@ -644,7 +644,7 @@ function setPlayerPassword(index) {
 
 function removePlayerPassword(index) {
   if (!isAdmin()) return;
-  if (confirm(`Passwort von ${players[index].name} wirklich l�schen?`)) {
+  if (confirm(`Passwort von ${players[index].name} wirklich löschen?`)) {
     players[index].password = null;
     saveData();
   }
@@ -653,11 +653,11 @@ function removePlayerPassword(index) {
 // 8. Gruppen & KO-Phase Logik
 function drawGroups() {
   if (!isAdmin()) return;
-  if (teams.length < 4) return alert('Du ben�tigst mindestens 4 Teams f�r Gruppen!');
+  if (teams.length < 4) return alert('Du benötigst mindestens 4 Teams für Gruppen!');
 
   let choice = prompt(
     `Du hast aktuell ${teams.length} Teams.\n\n` +
-    `W�hle den Turniermodus:\n` +
+    `Wähle den Turniermodus:\n` +
     `1 = 2 Gruppen (Top 2 je Gruppe direkt ins HALBFINALE)\n` +
     `2 = 4 Gruppen (Top 2 je Gruppe ins VIERTELFINALE)\n\n` +
     `Eingabe (1 oder 2):`, 
@@ -672,7 +672,7 @@ function drawGroups() {
   } else if (choice.trim() === "2") {
     groupLetters = ['Gruppe A', 'Gruppe B', 'Gruppe C', 'Gruppe D'];
   } else {
-    return alert('Ung�ltige Auswahl! Bitte 1 oder 2 eingeben.');
+    return alert('Ungültige Auswahl! Bitte 1 oder 2 eingeben.');
   }
 
   if (confirm(`Gruppen neu auslosen (${groupLetters.length} Gruppen) & Spielplan erstellen?`)) {
@@ -774,10 +774,10 @@ function drawKOPhase() {
   });
 
   if (qualified1st.length < 4 || qualified2nd.length < 4) {
-    return alert('Es m�ssen in allen 4 Gruppen die Gruppenspiele beendet sein!');
+    return alert('Es müssen in allen 4 Gruppen die Gruppenspiele beendet sein!');
   }
 
-  if (confirm('Viertelfinale �ber-Kreuz auslosen (keine Duelle aus gleicher Gruppe)?')) {
+  if (confirm('Viertelfinale Über-Kreuz auslosen (keine Duelle aus gleicher Gruppe)?')) {
     let available2nd = [...qualified2nd];
     let paired2nd = [];
 
@@ -825,10 +825,10 @@ function drawSemifinals() {
     const groupB = standings.find(g => g.letter === 'Gruppe B');
 
     if (!groupA || !groupB || groupA.rankings.length < 2 || groupB.rankings.length < 2) {
-      return alert('Es m�ssen erst alle Gruppenspiele in Gruppe A und B beendet sein!');
+      return alert('Es müssen erst alle Gruppenspiele in Gruppe A und B beendet sein!');
     }
 
-    if (confirm('Halbfinale �ber-Kreuz anlegen? (A1 vs B2 & B1 vs A2)')) {
+    if (confirm('Halbfinale Über-Kreuz anlegen? (A1 vs B2 & B1 vs A2)')) {
       koMatches = [
         {
           id: 201, round: 'Halbfinale 1', court: 'Hauptplatz',
@@ -860,9 +860,9 @@ function drawSemifinals() {
     }
   });
 
-  if (winners.length < 4) return alert('Es m�ssen erst alle 4 Viertelfinal-Spiele beendet sein!');
+  if (winners.length < 4) return alert('Es müssen erst alle 4 Viertelfinal-Spiele beendet sein!');
 
-  if (confirm('Halbfinale jetzt zuf�llig aus den 4 Siegern auslosen?')) {
+  if (confirm('Halbfinale jetzt zufällig aus den 4 Siegern auslosen?')) {
     const shuffledWinners = [...winners].sort(() => Math.random() - 0.5);
     
     koMatches.push({
@@ -887,7 +887,7 @@ function drawFinals() {
   const hf1 = koMatches.find(m => m.round === 'Halbfinale 1');
   const hf2 = koMatches.find(m => m.round === 'Halbfinale 2');
 
-  if (!hf1 || !hf2 || !hf1.played || !hf2.played) return alert('Beide Halbfinal-Spiele m�ssen erst beendet sein!');
+  if (!hf1 || !hf2 || !hf1.played || !hf2.played) return alert('Beide Halbfinal-Spiele müssen erst beendet sein!');
 
   const hf1Winner = hf1.score1 > hf1.score2 ? hf1.t1Id : hf1.t2Id;
   const hf1Loser  = hf1.score1 > hf1.score2 ? hf1.t2Id : hf1.t1Id;
@@ -896,12 +896,12 @@ function drawFinals() {
 
   if (confirm('Finale & Spiel um Platz 3 jetzt erstellen?')) {
     koMatches.push({
-      id: 301, round: '?? Spiel um Platz 3', court: 'Nebenplatz',
+      id: 301, round: '🥉 Spiel um Platz 3', court: 'Nebenplatz',
       t1Id: hf1Loser, t2Id: hf2Loser, score1: null, score2: null, played: false
     });
 
     koMatches.push({
-      id: 302, round: '?? FINALE', court: 'Hauptplatz',
+      id: 302, round: '🏆 FINALE', court: 'Hauptplatz',
       t1Id: hf1Winner, t2Id: hf2Winner, score1: null, score2: null, played: false
     });
 
@@ -912,7 +912,7 @@ function drawFinals() {
 
 function resetTournament() {
   if (!isAdmin()) return;
-  if (confirm('Turnier wirklich zur�cksetzen? Alle Teams und Ergebnisse werden gel�scht!')) {
+  if (confirm('Turnier wirklich zurücksetzen? Alle Teams und Ergebnisse werden gelöscht!')) {
     players = [];
     teams = [];
     groups = [];
@@ -920,8 +920,8 @@ function resetTournament() {
     koMatches = [];
     tips = {};
     draftState = { active: false, pairs: [], currentIndex: 0, remainingClubs: [], spinning: false, startTime: null, targetAngle: 0, duration: 4000, lastDrawnClub: null };
-    userBalances = {}; // Setzt alle Kontost�nde zur�ck (jeder startet wieder bei 100)
-    bets = [];         // L�scht alle aktiven Wetten
+    userBalances = {}; // Setzt alle Kontostände zurück (jeder startet wieder bei 100)
+    bets = [];         // Löscht alle aktiven Wetten
     saveData();
   }
 }
@@ -947,7 +947,7 @@ function updateMatchScore(matchId, isKO, score1Val, score2Val) {
   const match = matchArray.find(m => m.id === matchId);
   if (!match) return;
   if (match.betsEvaluated) {
-    alert('Dieses Spiel wurde bereits best�tigt und ausgezahlt. Der Spielstand ist gesperrt!');
+    alert('Dieses Spiel wurde bereits bestätigt und ausgezahlt. Der Spielstand ist gesperrt!');
     return;
   }
 
@@ -975,13 +975,13 @@ function updateMatchScore(matchId, isKO, score1Val, score2Val) {
       evaluateBetsForMatch(matchId, winningTeamId);
     }
 
-    if (match.round === '?? FINALE') {
+    if (match.round === '🏆 FINALE') {
       const winnerTeamId = s1 > s2 ? match.t1Id : match.t2Id;
       const winnerTeam = teams.find(t => t.id === winnerTeamId);
 
       if (winnerTeam) {
         setTimeout(() => {
-          alert(`?? ?? DIE SIEGER DES FAL FIFA TURNIERS SIND: ?? ??\n\n?? ${winnerTeam.p1} & ${winnerTeam.p2} (${winnerTeam.name} - ${winnerTeam.club || ''}) ??\n\nHerzlichen Gl�ckwunsch! ????`);
+          alert(`🎉 🏆 DIE SIEGER DES FAL FIFA TURNIERS SIND: 🏆 🎉\n\n🥇 ${winnerTeam.p1} & ${winnerTeam.p2} (${winnerTeam.name} - ${winnerTeam.club || ''}) 🥇\n\nHerzlichen Glückwunsch! 👏🥳`);
         }, 300);
       }
     }
@@ -1052,7 +1052,7 @@ function renderTipRound() {
       <div class="tip-row">
         <button class="btn-secondary tip-btn ${isMine ? 'highlight-me' : ''}"
                 ${myPlayerName ? `onclick="submitTip(${t.id})"` : 'disabled'}>
-          <span>${isMine ? '? ' : ''}${label}</span>
+          <span>${isMine ? '✅ ' : ''}${label}</span>
           <span style="color:var(--fal-yellow); font-weight:bold;">${pct}% (${count})</span>
         </button>
         <div class="tip-bar-track">
@@ -1120,15 +1120,15 @@ function renderDashboard() {
   container.innerHTML = `
     <div class="grid-container">
       <div class="admin-card stat-tile">
-        <p class="stat-label">? Torj�ger-Team</p>
+        <p class="stat-label">⚽ Torjäger-Team</p>
         <p class="stat-value">${topScorer && topScorer.goals > 0 ? `${topScorer.team.name} (${topScorer.goals} Tore)` : 'Noch keine Tore'}</p>
       </div>
       <div class="admin-card stat-tile">
-        <p class="stat-label">?? Beste Siegquote</p>
+        <p class="stat-label">🔥 Beste Siegquote</p>
         <p class="stat-value">${topWinner ? `${topWinner.team.name} (${topWinner.wins}/${topWinner.played} Siege)` : 'Noch keine Spiele'}</p>
       </div>
       <div class="admin-card stat-tile">
-        <p class="stat-label">?? Fan-Liebling</p>
+        <p class="stat-label">🐐 Fan-Liebling</p>
         <p class="stat-value">${favorite && favorite.count > 0 ? `${favorite.team.name} (${favorite.count} Tipps)` : 'Noch keine Tipps'}</p>
       </div>
     </div>
@@ -1147,7 +1147,7 @@ function renderTeams() {
   container.innerHTML = teams.map(t => {
     const isMyTeam = (myPlayerName && (t.p1 === myPlayerName || t.p2 === myPlayerName));
     const canEditName = canManageMatches() || isMyTeam;
-    const clubBadgeHtml = t.club ? `<div class="club-badge">? ${t.club}</div>` : '';
+    const clubBadgeHtml = t.club ? `<div class="club-badge">⚽ ${t.club}</div>` : '';
 
     return `
       <div class="admin-card ${isMyTeam ? 'highlight-me' : ''}">
@@ -1158,7 +1158,7 @@ function renderTeams() {
                  style="font-weight: bold; font-size: 1.1em; max-width: 180px;">
           ${clubBadgeHtml}
         </div>
-        ${isMyTeam ? '<div style="color:var(--fal-yellow); font-size:0.85em; font-weight:bold; margin-top:4px;">? (Dein Team)</div>' : ''}
+        ${isMyTeam ? '<div style="color:var(--fal-yellow); font-size:0.85em; font-weight:bold; margin-top:4px;">⭐ (Dein Team)</div>' : ''}
         <p style="margin-top: 8px; margin-bottom:0;">Mitglieder: <strong>${t.p1}</strong> & <strong>${t.p2}</strong></p>
       </div>
     `;
@@ -1260,14 +1260,14 @@ function renderMatches() {
     } else {
       let html = '';
 
-      const finalMatch = koMatches.find(m => m.round === '?? FINALE');
+      const finalMatch = koMatches.find(m => m.round === '🏆 FINALE');
       if (finalMatch && finalMatch.played) {
         const winnerId = finalMatch.score1 > finalMatch.score2 ? finalMatch.t1Id : finalMatch.t2Id;
         const winnerTeam = teams.find(t => t.id === winnerId);
         if (winnerTeam) {
           html += `
             <div class="admin-card highlight-me" style="text-align: center; margin-bottom: 25px; background: linear-gradient(135deg, #132A4A, #1A3E66);">
-              <h2 style="color: var(--fal-yellow); margin: 0 0 10px 0;">?? TURNIERSIEGER ??</h2>
+              <h2 style="color: var(--fal-yellow); margin: 0 0 10px 0;">🏆 TURNIERSIEGER 🏆</h2>
               <h3 style="font-size: 1.5em; margin: 0; color: white;">${winnerTeam.p1} & ${winnerTeam.p2}</h3>
               <p style="margin: 5px 0 0 0; color: var(--fal-yellow); font-weight: bold;">(${winnerTeam.name} - ${winnerTeam.club || ''})</p>
             </div>
@@ -1286,13 +1286,13 @@ function renderMatches() {
 
       if (isAdmin()) {
         if (isTwoGroupMode && !hasHF) {
-          html += `<button class="btn-primary" style="margin-bottom: 20px;" onclick="drawSemifinals()">?? Halbfinale �ber-Kreuz auslosen!</button>`;
+          html += `<button class="btn-primary" style="margin-bottom: 20px;" onclick="drawSemifinals()">🎲 Halbfinale Über-Kreuz auslosen!</button>`;
         } else if (!isTwoGroupMode && qfFinished && !hasHF) {
-          html += `<button class="btn-primary" style="margin-bottom: 20px;" onclick="drawSemifinals()">?? Halbfinale jetzt auslosen!</button>`;
+          html += `<button class="btn-primary" style="margin-bottom: 20px;" onclick="drawSemifinals()">🎲 Halbfinale jetzt auslosen!</button>`;
         }
         
         if (hfFinished && !hasFinal) {
-          html += `<button class="btn-primary" style="margin-bottom: 20px;" onclick="drawFinals()">?? Finale & Spiel um Platz 3 anlegen!</button>`;
+          html += `<button class="btn-primary" style="margin-bottom: 20px;" onclick="drawFinals()">🏆 Finale & Spiel um Platz 3 anlegen!</button>`;
         }
       }
 
@@ -1307,8 +1307,8 @@ function renderMatchCard(m, isKO, myTeam) {
   const t2 = teams.find(t => t.id === m.t2Id);
   const canEdit = canManageMatches() || (myTeam && (m.t1Id === myTeam.id || m.t2Id === myTeam.id));
   const courtClass = m.court === 'Hauptplatz' ? 'court-main' : 'court-side';
-  const roundTitle = m.round ? `${m.round}` : `Runde ${m.slot} � ${m.group}`;
-  const isFinal = m.round === '?? FINALE';
+  const roundTitle = m.round ? `${m.round}` : `Runde ${m.slot} • ${m.group}`;
+  const isFinal = m.round === '🏆 FINALE';
 
   const t1Label = t1 ? `${t1.name} ${t1.club ? '(' + t1.club + ')' : ''}` : 'Team 1';
   const t2Label = t2 ? `${t2.name} ${t2.club ? '(' + t2.club + ')' : ''}` : 'Team 2';
@@ -1332,7 +1332,7 @@ function renderMatchCard(m, isKO, myTeam) {
           <button class="${m.betsEvaluated ? 'btn-secondary' : 'btn-primary'} btn-sm" 
                   ${m.betsEvaluated ? 'disabled' : ''} 
                   onclick="updateMatchScore(${m.id}, ${isKO}, document.getElementById('score1-${m.id}').value, document.getElementById('score2-${m.id}').value)">
-            ${canManageMatches() ? (m.betsEvaluated ? '?? Ausgezahlt & Fix' : (m.played ? '? Best�tigen & Auszahlen' : 'Speichern')) : 'Speichern'}
+            ${canManageMatches() ? (m.betsEvaluated ? '🔒 Ausgezahlt & Fix' : (m.played ? '✓ Bestätigen & Auszahlen' : 'Speichern')) : 'Speichern'}
           </button>
         ` : ''}
 
@@ -1354,19 +1354,19 @@ function renderAdminPanel() {
         <div style="display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; background: var(--fal-blue-primary); padding: 10px 12px; border-radius: 8px; margin-bottom: 8px; gap: 8px;">
           <div>
             <strong>${index + 1}. ${p.name}</strong> 
-            ${p.isRef ? '<span style="color:var(--fal-yellow); font-size:0.85em;">[?? Ref]</span>' : ''}
-            ${hasPW ? '<span style="font-size:0.85em; opacity:0.8;">[?? PW]</span>' : ''}
+            ${p.isRef ? '<span style="color:var(--fal-yellow); font-size:0.85em;">[🟨 Ref]</span>' : ''}
+            ${hasPW ? '<span style="font-size:0.85em; opacity:0.8;">[🔒 PW]</span>' : ''}
           </div>
 
           <div style="display:flex; gap: 5px; flex-wrap:wrap;">
             <button class="${isRefBtnClass} btn-sm" onclick="toggleRef(${index})">
-              ${p.isRef ? '?? Ref (Aktiv)' : 'Ref vergeben'}
+              ${p.isRef ? '🟨 Ref (Aktiv)' : 'Ref vergeben'}
             </button>
             ${hasPW 
-              ? `<button class="btn-danger btn-sm" onclick="removePlayerPassword(${index})">PW l�schen</button>`
+              ? `<button class="btn-danger btn-sm" onclick="removePlayerPassword(${index})">PW löschen</button>`
               : `<button class="btn-secondary btn-sm" onclick="setPlayerPassword(${index})">+ PW</button>`
             }
-            <button class="btn-danger btn-sm" onclick="removePlayer(${index})">???</button>
+            <button class="btn-danger btn-sm" onclick="removePlayer(${index})">🗑️</button>
           </div>
         </div>
       `;
@@ -1376,19 +1376,19 @@ function renderAdminPanel() {
   if (clubListEl) {
     clubListEl.innerHTML = availableClubs.map((club, index) => `
       <span class="club-badge">
-        ${club} <span style="cursor:pointer; color:#ff4d4d; font-weight:bold; margin-left:4px;" onclick="removeClub(${index})">�</span>
+        ${club} <span style="cursor:pointer; color:#ff4d4d; font-weight:bold; margin-left:4px;" onclick="removeClub(${index})">×</span>
       </span>
     `).join('');
   }
 }
 // ==========================================
-// ?? WETT-SYSTEM LOGIK & RENDERING
+// 🎯 WETT-SYSTEM LOGIK & RENDERING
 // ==========================================
 
 function getUserBalance(playerName) {
   if (!playerName) return 0;
   if (userBalances[playerName] === undefined) {
-    userBalances[playerName] = 100; // Startguthaben f�r jeden neuen Spieler
+    userBalances[playerName] = 100; // Startguthaben für jeden neuen Spieler
   }
   return userBalances[playerName];
 }
@@ -1404,20 +1404,20 @@ function renderBettingSystem() {
   const currentBalance = myPlayerName ? getUserBalance(myPlayerName) : 0;
   balanceEl.innerText = currentBalance;
 
-  // 2. N�chste ungespielte Spiele laden
+  // 2. Nächste ungespielte Spiele laden
   const upcomingMatches = [...groupMatches, ...koMatches]
     .filter(m => !m.played && m.t1Id && m.t2Id)
-    .slice(0, 3); // Max 3 n�chste Spiele zum Wetten anzeigen
+    .slice(0, 3); // Max 3 nächste Spiele zum Wetten anzeigen
 
   if (upcomingMatches.length === 0) {
-    matchesListEl.innerHTML = '<p style="opacity:0.7;">Aktuell keine anstehenden Spiele zum Wetten verf�gbar.</p>';
+    matchesListEl.innerHTML = '<p style="opacity:0.7;">Aktuell keine anstehenden Spiele zum Wetten verfügbar.</p>';
   } else {
     matchesListEl.innerHTML = upcomingMatches.map(m => {
       const t1 = teams.find(t => t.id === m.t1Id);
       const t2 = teams.find(t => t.id === m.t2Id);
       if (!t1 || !t2) return '';
 
-      // Pr�fen, ob der User bereits auf dieses Spiel gewettet hat
+      // Prüfen, ob der User bereits auf dieses Spiel gewettet hat
       const myExistingBet = bets.find(b => b.matchId === m.id && b.playerName === myPlayerName);
 
       return `
@@ -1431,7 +1431,7 @@ function renderBettingSystem() {
           
           ${myExistingBet ? `
             <div style="text-align:center; font-size: 0.9em; color: var(--fal-yellow); background: rgba(0,0,0,0.2); padding: 5px; border-radius: 5px;">
-              ? Gewettet: <strong>${myExistingBet.amount} Coins</strong> auf <strong>${myExistingBet.chosenTeamId === t1.id ? t1.club : t2.club}</strong>
+              ✅ Gewettet: <strong>${myExistingBet.amount} Coins</strong> auf <strong>${myExistingBet.chosenTeamId === t1.id ? t1.club : t2.club}</strong>
             </div>
           ` : `
             <div style="display: flex; gap: 8px; align-items: center;">
@@ -1458,8 +1458,8 @@ function renderBettingSystem() {
   } else {
     leaderboardEl.innerHTML = sortedUsers.map((u, i) => `
       <div style="display: flex; justify-content: space-between; font-size: 0.9em; padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,0.05);">
-        <span>${i === 0 ? '??' : i === 1 ? '??' : i === 2 ? '??' : `${i + 1}.`} ${u.name}</span>
-        <span style="font-weight: bold; color: var(--fal-yellow);">${u.balance} ??</span>
+        <span>${i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i + 1}.`} ${u.name}</span>
+        <span style="font-weight: bold; color: var(--fal-yellow);">${u.balance} 🪙</span>
       </div>
     `).join('');
   }
@@ -1475,8 +1475,8 @@ function placeBet(matchId) {
   const amount = parseInt(amountInput.value);
   const currentBalance = getUserBalance(myPlayerName);
 
-  if (isNaN(amount) || amount <= 0) return alert('Bitte einen g�ltigen Wettbetrag eingeben!');
-  if (amount > currentBalance) return alert('Du hast nicht gen�gend FAL-Coins!');
+  if (isNaN(amount) || amount <= 0) return alert('Bitte einen gültigen Wettbetrag eingeben!');
+  if (amount > currentBalance) return alert('Du hast nicht genügend FAL-Coins!');
 
   // Coins abziehen
   userBalances[myPlayerName] -= amount;
