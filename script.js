@@ -293,6 +293,14 @@ function showTab(tabName) {
   const tab = document.getElementById(`tab-${tabName}`);
   if (btn) btn.classList.add('active');
   if (tab) tab.classList.add('active');
+
+  // NEU: Beim Tab-Wechsel direkt die Ansichten neu zeichnen
+  if (tabName === 'matches' || tabName === 'spiele') {
+    if (typeof renderMatches === 'function') renderMatches();
+  }
+  if (tabName === 'groups' || tabName === 'gruppen') {
+    if (typeof renderGroups === 'function') renderGroups();
+  }
 }
 
 // 4. Live-Sync via Firebase
