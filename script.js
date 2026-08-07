@@ -71,18 +71,12 @@ let pendingAdminLogin = false;
 let userBalances = {}; // Speichert die Coins pro Spieler { "Name": 100 }
 let bets = [];         // Speichert alle abgegebenen Wetten
 
-// Interaktive Auslosung (Live-Synced)
-let draftState = {
-  active: false,
-  pairs: [],
-  currentIndex: 0,
-  remainingClubs: [],
-  spinning: false,
-  startTime: null,
-  targetAngle: 0,
-  duration: 4000,
-  lastDrawnClub: null
-};
+// Status-Variablen für das neue Auslosungs-System (Duo-Draft)
+let currentDraftStep = 0; // 0: P1 wählen, 1: P2 wählen, 2: Club wählen
+let tempP1 = null;
+let tempP2 = null;
+let remainingPlayersForDraft = [];
+let remainingClubsForDraft = [];
 
 let animFrameId = null;
 
@@ -415,13 +409,49 @@ function startInteractiveDraft() {
   }
 }
 
+// 6. LIVE INTERAKTIVE AUSLOSUNG SHOW (3-Schritt System: P1 -> P2 -> Club)
+function startInteractiveDraft() {
+  if (!isAdmin()) return;
+  if (players.length < 4 || players.length % 2 !== 0) {
+    return alert(`Du benötigst eine gerade und ausreichend hohe Anzahl an Spielern (aktuell: ${players.length}).`);
+  }
+  if (availableClubs.length < (players.length / 2)) {
+    return alert(`Du hast zu wenige Profi-Clubs in der Liste! Mindestens ${players.length / 2} benötigt.`);
+  }
+
+  if (confirm('Soll die Auslosungs-Show jetzt LIVE gestartet werden?')) {
+    teams = [];
+    groups = [];
+    groupMatches = [];
+    koMatches = [];
+    tips = {};
+
+    draftState = {
+      active: true,
+      currentStep: 0, // 0: P1, 1: P2, 2: Club
+      tempP1: null,
+      tempP2: null,
+      remainingPlayers: [...players.map(p => p.name)],
+      remainingClubs: [...availableClubs],
+      spinning: false,
+      startTime: null,
+      targetAngle: 0,
+      duration: 4000,
+      lastDrawnItem: null
+    };
+
+    saveData();
+    handleLiveDraftUI();
+  }
+}
+
 function handleLiveDraftUI() {
   const modal = document.getElementById('draft-modal');
   if (!modal) return;
 
   if (!draftState || !draftState.active) {
     modal.style.display = 'none';
-    if (animFrameId) cancelAnimationFrame(animFrameId);
+    if (typeof animFrameId !== 'undefined' && animFrameId) cancelAnimationFrame(animFrameId);
     return;
   }
 
@@ -433,23 +463,29 @@ function renderDraftStep() {
   const stage = document.getElementById('draft-stage');
   if (!stage) return;
 
-  if (draftState.currentIndex >= draftState.pairs.length) {
+  // Wenn keine Spieler mehr übrig sind und das letzte Team voll ist
+  if (draftState.remainingPlayers.length === 0 && draftState.currentStep === 0) {
     stage.innerHTML = `
       <h3 style="color:#4CAF50;">🎉 Alle Teams wurden gelost! 🎉</h3>
-      <p>Die Teams und zugelosten Fußballmannschaften stehen fest!</p>
+      <p>Die Duos und ihre Profi-Clubs stehen fest!</p>
       ${isAdmin() ? `<button class="btn-primary role-btn" onclick="finishDraft()">Fertigstellen & Teams speichern</button>` : '<p style="color:var(--fal-yellow);">Warte auf Admin-Bestätigung...</p>'}
     `;
     return;
   }
 
-  const currentPair = draftState.pairs[draftState.currentIndex];
+  const currentTeamNum = teams.length + 1;
+  let stepText = '';
+  if (draftState.currentStep === 0) stepText = '🎰 Step 1: Lose <strong>Spieler 1</strong>';
+  else if (draftState.currentStep === 1) stepText = `🎰 Step 2: Lose <strong>Spieler 2</strong> (Partner für ${draftState.tempP1})`;
+  else if (draftState.currentStep === 2) stepText = `🎰 Step 3: Lose <strong>Club</strong> für Duo ${draftState.tempP1} & ${draftState.tempP2}`;
 
   stage.innerHTML = `
-    <p style="font-size:0.9em; opacity:0.8;">Team ${draftState.currentIndex + 1} von ${draftState.pairs.length}</p>
-    
-    <div style="background:rgba(0,0,0,0.3); padding:15px; border-radius:10px; margin: 15px 0;">
-      <h3 style="margin:0 0 10px 0; color:var(--fal-yellow);">👥 Spieler-Duo:</h3>
-      <h2 style="margin:0; font-size:1.4em;">${currentPair.p1} & ${currentPair.p2}</h2>
+    <p style="font-size:0.9em; opacity:0.8;">Erstelle Team ${currentTeamNum}</p>
+    <h3 style="margin:5px 0; color:var(--fal-yellow);">${stepText}</h3>
+
+    <div style="background:rgba(0,0,0,0.3); padding:10px; border-radius:8px; margin: 10px 0;">
+      <small style="opacity:0.7;">Aktuelles Status-Duo:</small><br>
+      <strong>${draftState.tempP1 ? draftState.tempP1 : '???'}</strong> & <strong>${draftState.tempP2 ? draftState.tempP2 : '???'}</strong>
     </div>
 
     <div class="wheel-container">
@@ -457,30 +493,26 @@ function renderDraftStep() {
       <canvas id="wheel-canvas" width="260" height="260"></canvas>
     </div>
 
-    <div id="spin-result" style="height: 35px; font-weight: bold; font-size: 1.2em; color: var(--fal-yellow); margin-top:5px;">
-      ${draftState.lastDrawnClub ? `⚽ Gewählter Club: <u>${draftState.lastDrawnClub}</u>` : ''}
+    <div id="spin-result" style="height: 35px; font-weight: bold; font-size: 1.1em; color: var(--fal-yellow); margin-top:5px;">
+      ${draftState.lastDrawnItem ? `🎯 Gezogen: <u>${draftState.lastDrawnItem}</u>` : ''}
     </div>
 
     ${isAdmin() ? `
-      ${!draftState.spinning && !draftState.lastDrawnClub ? `
+      ${!draftState.spinning ? `
         <button class="btn-primary role-btn" id="btn-spin-wheel" style="margin-top:10px;" onclick="spinWheel()">
           🎰 Rad drehen
         </button>
       ` : ''}
-
-      ${!draftState.spinning && draftState.lastDrawnClub ? `
-        <button class="btn-primary role-btn" style="margin-top:15px;" onclick="nextDraftStep()">
-          ${draftState.currentIndex + 1 < draftState.pairs.length ? 'Weiter zum nächsten Team ➡️' : 'Auslosung abschließen 🎉'}
-        </button>
-      ` : ''}
     ` : `
       <p style="font-size:0.9em; opacity:0.8; margin-top:10px;">
-        ${draftState.spinning ? '🎰 Das Rad dreht sich live...' : (draftState.lastDrawnClub ? 'Warte auf nächstes Team...' : 'Der Admin dreht gleich am Rad!')}
+        ${draftState.spinning ? '🎰 Das Rad dreht sich live...' : 'Der Admin dreht gleich am Rad!'}
       </p>
     `}
   `;
 
-  startWheelAnimationLoop();
+  if (typeof startWheelAnimationLoop === 'function') {
+    startWheelAnimationLoop();
+  }
 }
 
 function startWheelAnimationLoop() {
