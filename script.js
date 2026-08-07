@@ -1391,66 +1391,93 @@ function renderGroups() {
   container.innerHTML = html;
 }
 function renderMatches() {
-  const gList = document.getElementById('group-matches-list');
-  const kList = document.getElementById('ko-matches-list');
-  const myTeam = getMyTeam();
+  const container = document.getElementById('matches-list'); // oder deine Container-ID
+  if (!container) return;
 
-  if (gList) {
-    if (groupMatches.length === 0) {
-      gList.innerHTML = '<p class="empty-state">Noch keine Gruppenspiele generiert.</p>';
-    } else {
-      gList.innerHTML = groupMatches.map(m => renderMatchCard(m, false, myTeam)).join('');
-    }
+  if (!groupMatches || groupMatches.length === 0) {
+    container.innerHTML = '<p style="text-align:center; opacity:0.7;">Noch keine Spiele generiert. Bitte zuerst Gruppen auslosen.</p>';
+    return;
   }
 
-  if (kList) {
-    if (koMatches.length === 0) {
-      kList.innerHTML = '<p class="empty-state">KO-Phase wurde noch nicht gelost.</p>';
-    } else {
-      let html = '';
+  let html = '';
 
-      const finalMatch = koMatches.find(m => m.round === '🏆 FINALE');
-      if (finalMatch && finalMatch.played) {
-        const winnerId = finalMatch.score1 > finalMatch.score2 ? finalMatch.t1Id : finalMatch.t2Id;
-        const winnerTeam = teams.find(t => t.id === winnerId);
-        if (winnerTeam) {
-          html += `
-            <div class="admin-card highlight-me" style="text-align: center; margin-bottom: 25px; background: linear-gradient(135deg, #132A4A, #1A3E66);">
-              <h2 style="color: var(--fal-yellow); margin: 0 0 10px 0;">🏆 TURNIERSIEGER 🏆</h2>
-              <h3 style="font-size: 1.5em; margin: 0; color: white;">${winnerTeam.p1} & ${winnerTeam.p2}</h3>
-              <p style="margin: 5px 0 0 0; color: var(--fal-yellow); font-weight: bold;">(${winnerTeam.name} - ${winnerTeam.club || ''})</p>
-            </div>
-          `;
-        }
-      }
+  groupMatches.forEach((m, idx) => {
+    const t1 = teams.find(t => t.id === m.t1Id) || { name: 'Team ?', p1: 'P1', p2: 'P2', club: '' };
+    const t2 = teams.find(t => t.id === m.t2Id) || { name: 'Team ?', p1: 'P1', p2: 'P2', club: '' };
 
-      const isTwoGroupMode = groups.length === 2;
-      const qfMatches = koMatches.filter(m => m.round === 'Viertelfinale');
-      const qfFinished = qfMatches.length === 4 && qfMatches.every(m => m.played);
-      const hasHF = koMatches.some(m => m.round.includes('Halbfinale'));
+    // 1. DYNAMISCHE PLATZ-ZUWEISUNG (Parallele Slots)
+    // Spiele werden paarweise auf Hauptplatz (gerade Indizes) & Nebenplatz (ungerade) gelegt
+    let courtName = 'Hauptplatz';
+    if (idx % 2 === 1 && idx < groupMatches.length - (groupMatches.length % 2)) {
+      courtName = 'Nebenplatz';
+    }
+    m.court = courtName; // Für Speicherung sichern
 
-      const hfMatches = koMatches.filter(m => m.round.includes('Halbfinale'));
-      const hfFinished = hfMatches.length === 2 && hfMatches.every(m => m.played);
-      const hasFinal = koMatches.some(m => m.round.includes('FINALE'));
+    // 2. FARBLICHE DUEL-LOGIK (Gelb vs. Blau)
+    // Hinspiel = Gelb (P1 vs P1) | Rückspiel = Blau (P2 vs P2)
+    const hinLegColor = 'border-left: 5px solid #f1c40f; background: rgba(241, 196, 15, 0.1);';
+    const rueckLegColor = 'border-left: 5px solid #3498db; background: rgba(52, 152, 219, 0.1);';
 
-      if (isAdmin()) {
-        if (isTwoGroupMode && !hasHF) {
-          html += `<button class="btn-primary" style="margin-bottom: 20px;" onclick="drawSemifinals()">🎲 Halbfinale Über-Kreuz auslosen!</button>`;
-        } else if (!isTwoGroupMode && qfFinished && !hasHF) {
-          html += `<button class="btn-primary" style="margin-bottom: 20px;" onclick="drawSemifinals()">🎲 Halbfinale jetzt auslosen!</button>`;
-        }
+    html += `
+      <div class="match-card" style="background:#1e3e62; margin-bottom:15px; padding:15px; border-radius:8px; position:relative;">
         
-        if (hfFinished && !hasFinal) {
-          html += `<button class="btn-primary" style="margin-bottom: 20px;" onclick="drawFinals()">🏆 Finale & Spiel um Platz 3 anlegen!</button>`;
-        }
-      }
+        <!-- Header: Runde, Gruppe & Platz Badge -->
+        <div style="display:flex; justify-between; align-items:center; margin-bottom:10px;">
+          <span style="color:var(--fal-yellow); font-weight:bold;">Runde ${m.slot || idx + 1} • ${m.group}</span>
+          <span class="badge" style="background:${courtName === 'Hauptplatz' ? '#e74c3c' : '#2ecc71'}; color:white; padding:3px 8px; border-radius:4px; font-size:0.8em; font-weight:bold;">
+            ${courtName}
+          </span>
+        </div>
 
-      html += koMatches.map(m => renderMatchCard(m, true, myTeam)).join('');
-      kList.innerHTML = html;
-    }
-  }
+        <!-- Paarung Head-to-Head -->
+        <div style="margin-bottom:12px;">
+          <div style="font-size:1.05em; font-weight:bold;">
+            ${t1.name} <small style="opacity:0.8;">(${t1.p1} & ${t1.p2})</small> <span style="color:#f1c40f;">[${t1.club}]</span>
+          </div>
+          <div style="font-size:0.8em; opacity:0.6; margin:2px 0;">vs</div>
+          <div style="font-size:1.05em; font-weight:bold;">
+            ${t2.name} <small style="opacity:0.8;">(${t2.p1} & ${t2.p2})</small> <span style="color:#f1c40f;">[${t2.club}]</span>
+          </div>
+        </div>
+
+        <!-- ERGEBNIS-EINGABEN (Hin- & Rückspiel) -->
+        <div style="display:flex; flex-direction:column; gap:8px;">
+          
+          <!-- HINSPIEL (Gelb: P1 vs P1) -->
+          <div style="padding:8px; border-radius:5px; ${hinLegColor} display:flex; align-items:center; justify-content:space-between;">
+            <span style="font-size:0.85em;">🟡 <strong>Hinspiel:</strong> ${t1.p1} vs. ${t2.p1}</span>
+            <div style="display:flex; gap:5px; align-items:center;">
+              <input type="number" id="m_${m.id}_h1" min="0" max="20" style="width:40px; text-align:center;" value="${m.score1_h !== null && m.score1_h !== undefined ? m.score1_h : ''}">
+              :
+              <input type="number" id="m_${m.id}_h2" min="0" max="20" style="width:40px; text-align:center;" value="${m.score2_h !== null && m.score2_h !== undefined ? m.score2_h : ''}">
+            </div>
+          </div>
+
+          <!-- RÜCKSPIEL (Blau: P2 vs P2) -->
+          <div style="padding:8px; border-radius:5px; ${rueckLegColor} display:flex; align-items:center; justify-content:space-between;">
+            <span style="font-size:0.85em;">🔵 <strong>Rückspiel:</strong> ${t1.p2} vs. ${t2.p2}</span>
+            <div style="display:flex; gap:5px; align-items:center;">
+              <input type="number" id="m_${m.id}_r1" min="0" max="20" style="width:40px; text-align:center;" value="${m.score1_r !== null && m.score1_r !== undefined ? m.score1_r : ''}">
+              :
+              <input type="number" id="m_${m.id}_r2" min="0" max="20" style="width:40px; text-align:center;" value="${m.score2_r !== null && m.score2_r !== undefined ? m.score2_r : ''}">
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Speichern Button -->
+        ${isAdmin() ? `
+          <button class="btn-primary" style="margin-top:10px; width:100%; padding:6px; font-size:0.9em;" onclick="saveMatchScores(${m.id})">
+            💾 Ergebnisse speichern
+          </button>
+        ` : ''}
+
+      </div>
+    `;
+  });
+
+  container.innerHTML = html;
 }
-
 // 1. MATCH-CARD RENDERING (Hin- & Rückspiel Support)
 function renderMatchCard(m, isKO, myTeam) {
   const t1 = teams.find(t => t.id === m.t1Id);
