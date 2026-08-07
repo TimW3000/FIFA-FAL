@@ -1165,6 +1165,7 @@ function renderTeams() {
   }).join('');
 }
 
+// 2a. GRUPPENTABELLEN BERECHNUNG (Aggregat aus Hin- & Rückspiel berücksichtigen)
 function calculateGroupStandings() {
   return groups.map(g => {
     const stats = {};
@@ -1175,20 +1176,39 @@ function calculateGroupStandings() {
       stats[tId] = { teamId: tId, name: displayName, played: 0, gf: 0, ga: 0, diff: 0, points: 0 };
     });
 
-    groupMatches.filter(m => m.group === g.letter && m.played).forEach(m => {
-      const t1 = stats[m.t1Id];
-      const t2 = stats[m.t2Id];
-      if (t1 && t2) {
-        t1.played++; t2.played++;
-        t1.gf += m.score1; t1.ga += m.score2;
-        t2.gf += m.score2; t2.ga += m.score1;
+    // Gruppiere Spiele paarweise nach Duellen (Hin- und Rückspiel zusammenrechnen)
+    const matchPairs = {};
+    groupMatches.filter(m => m.group === g.letter).forEach(m => {
+      const pairKey = [m.t1Id, m.t2Id].sort().join('-_');
+      if (!matchPairs[pairKey]) matchPairs[pairKey] = [];
+      matchPairs[pairKey].push(m);
+    });
 
-        if (m.score1 > m.score2) t1.points += 3;
-        else if (m.score2 > m.score1) t2.points += 3;
-        else { t1.points += 1; t2.points += 1; }
+    Object.values(matchPairs).forEach(pair => {
+      const leg1 = pair[0];
+      const leg2 = pair[1];
 
-        t1.diff = t1.gf - t1.ga;
-        t2.diff = t2.gf - t2.ga;
+      if (leg1 && leg2 && leg1.played && leg2.played) {
+        const t1 = stats[leg1.t1Id];
+        const t2 = stats[leg1.t2Id];
+
+        if (t1 && t2) {
+          t1.played += 2;
+          t2.played += 2;
+
+          const totalScore1 = leg1.score1 + leg2.score1;
+          const totalScore2 = leg1.score2 + leg2.score2;
+
+          t1.gf += totalScore1; t1.ga += totalScore2;
+          t2.gf += totalScore2; t2.ga += totalScore1;
+
+          if (totalScore1 > totalScore2) t1.points += 3;
+          else if (totalScore2 > totalScore1) t2.points += 3;
+          else { t1.points += 1; t2.points += 1; }
+
+          t1.diff = t1.gf - t1.ga;
+          t2.diff = t2.gf - t2.ga;
+        }
       }
     });
 
@@ -1197,6 +1217,7 @@ function calculateGroupStandings() {
   });
 }
 
+// 2b. RENDERING DER GRUPPEN & DER BERECHNUNG DER BESTEN DRITTEN
 function renderGroups() {
   const container = document.getElementById('groups-container');
   if (!container) return;
@@ -1208,9 +1229,9 @@ function renderGroups() {
 
   const standings = calculateGroupStandings();
 
-  container.innerHTML = standings.map(g => `
+  let html = standings.map(g => `
     <div class="admin-card">
-      <h3 style="color:var(--fal-yellow); margin-top:0;">${g.letter}</h3>
+      <h3 style="color:var(--fal-yellow); margin-top:0;">Gruppe ${g.letter}</h3>
       <div class="table-container">
         <table>
           <thead>
@@ -1225,7 +1246,7 @@ function renderGroups() {
           </thead>
           <tbody>
             ${g.rankings.map((r, idx) => `
-              <tr>
+              <tr style="${idx === 2 && groups.length === 3 ? 'opacity: 0.9;' : ''}">
                 <td>${idx + 1}</td>
                 <td><strong>${r.name}</strong></td>
                 <td>${r.played}</td>
@@ -1239,8 +1260,51 @@ function renderGroups() {
       </div>
     </div>
   `).join('');
-}
 
+  // Spezial-Tabelle: Quervergleich der besten Gruppendritten bei genau 3 Gruppen
+  if (groups.length === 3) {
+    const thirdPlaces = standings
+      .map(g => ({ ...g.rankings[2], group: g.letter }))
+      .filter(r => r !== undefined)
+      .sort((a, b) => b.points - a.points || b.diff - a.diff || b.gf - a.gf);
+
+    html += `
+      <div class="admin-card highlight-me" style="grid-column: 1 / -1; margin-top: 10px;">
+        <h3 style="color:var(--fal-yellow); margin-top:0;">📊 Quervergleich der Gruppendritten (Top 2 kommen ins Viertelfinale)</h3>
+        <div class="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th>Platz</th>
+                <th>Team (Gruppe)</th>
+                <th>Sp</th>
+                <th>Tore</th>
+                <th>Diff</th>
+                <th>Pkt</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${thirdPlaces.map((r, idx) => `
+                <tr style="${idx < 2 ? 'background: rgba(0, 255, 100, 0.1);' : 'background: rgba(255, 0, 0, 0.1);'}">
+                  <td>${idx + 1}</td>
+                  <td><strong>${r.name}</strong> (${r.group})</td>
+                  <td>${r.played}</td>
+                  <td>${r.gf}:${r.ga}</td>
+                  <td>${r.diff > 0 ? '+' + r.diff : r.diff}</td>
+                  <td><strong>${r.points}</strong></td>
+                  <td>${idx < 2 ? '✅ Qualifiziert' : '❌ Ausschieden'}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    `;
+  }
+
+  container.innerHTML = html;
+}
 function renderMatches() {
   const gList = document.getElementById('group-matches-list');
   const kList = document.getElementById('ko-matches-list');
@@ -1302,6 +1366,7 @@ function renderMatches() {
   }
 }
 
+// 1. MATCH-CARD RENDERING (Hin- & Rückspiel Support)
 function renderMatchCard(m, isKO, myTeam) {
   const t1 = teams.find(t => t.id === m.t1Id);
   const t2 = teams.find(t => t.id === m.t2Id);
@@ -1310,17 +1375,54 @@ function renderMatchCard(m, isKO, myTeam) {
   const roundTitle = m.round ? `${m.round}` : `Runde ${m.slot} • ${m.group}`;
   const isFinal = m.round === '🏆 FINALE';
 
-  const t1Label = t1 ? `${t1.name} ${t1.club ? '(' + t1.club + ')' : ''}` : 'Team 1';
-  const t2Label = t2 ? `${t2.name} ${t2.club ? '(' + t2.club + ')' : ''}` : 'Team 2';
+  // Duo-Spieler Namen extrahieren
+  const t1P1 = t1 ? t1.p1 : 'P1';
+  const t1P2 = t1 ? t1.p2 : 'P2';
+  const t2P1 = t2 ? t2.p1 : 'P1';
+  const t2P2 = t2 ? t2.p2 : 'P2';
+
+  // Match-Typing (Hinspiel / Rückspiel) & Kennzeichnung
+  const isLeg1 = m.leg === 1;
+  const isLeg2 = m.leg === 2;
+  const legBadge = isLeg1 
+    ? '<span style="background:var(--fal-yellow); color:#000; padding:2px 6px; border-radius:4px; font-weight:bold; font-size:0.75em;">🟡 Hinspiel (P1 vs P1)</span>'
+    : (isLeg2 ? '<span style="background:#00d2ff; color:#000; padding:2px 6px; border-radius:4px; font-weight:bold; font-size:0.75em;">🔵 Rückspiel (P2 vs P2)</span>' : '');
+
+  // Namen je nach Leg (P1 vs P1 oder P2 vs P2)
+  const player1Name = isLeg2 ? t1P2 : t1P1;
+  const player2Name = isLeg2 ? t2P2 : t2P1;
+
+  const t1Label = t1 ? `${t1.name} <small>(${player1Name})</small>` : 'Team 1';
+  const t2Label = t2 ? `${t2.name} <small>(${player2Name})</small>` : 'Team 2';
+
+  // Aggregate-Berechnung für Leg 2 Anzeigen
+  let aggregateHtml = '';
+  if (isLeg2 && m.pairedMatchId) {
+    const leg1Match = [...groupMatches, ...koMatches].find(x => x.id === m.pairedMatchId);
+    if (leg1Match && leg1Match.played) {
+      const agg1 = leg1Match.score1 + (m.score1 || 0);
+      const agg2 = leg1Match.score2 + (m.score2 || 0);
+      aggregateHtml = `
+        <div style="text-align:center; font-size:0.8em; margin-top:6px; color:var(--fal-yellow); background:rgba(0,0,0,0.3); padding:4px; border-radius:4px;">
+          Gesamtstand (Aggregat): <strong>${agg1} : ${agg2}</strong>
+        </div>
+      `;
+    }
+  }
 
   return `
     <div class="match-card ${isFinal ? 'highlight-me' : ''}">
-      <div style="display:flex; justify-content:space-between; align-items:center;">
+      <div style="display:flex; justify-content:space-between; align-items:center; gap: 5px; flex-wrap: wrap;">
         <span style="font-size: 0.85em; font-weight: bold; color: var(--fal-yellow);">${roundTitle}</span>
+        ${legBadge}
         <span class="court-badge ${courtClass}">${m.court}</span>
       </div>
       <div style="display:flex; justify-content:space-between; align-items:center; margin: 10px 0;">
-        <span style="font-size: 0.95em;"><strong>${t1Label}</strong> <br><small style="opacity:0.7;">vs</small><br> <strong>${t2Label}</strong></span>
+        <span style="font-size: 0.95em;">
+          <strong>${t1Label}</strong> ${t1 && t1.club ? `<small>(${t1.club})</small>` : ''}<br>
+          <small style="opacity:0.7;">vs</small><br>
+          <strong>${t2Label}</strong> ${t2 && t2.club ? `<small>(${t2.club})</small>` : ''}
+        </span>
       </div>
       <div style="display:flex; gap: 8px; align-items:center;">
         <input type="number" min="0" value="${m.score1 !== null ? m.score1 : ''}" 
@@ -1332,11 +1434,11 @@ function renderMatchCard(m, isKO, myTeam) {
           <button class="${m.betsEvaluated ? 'btn-secondary' : 'btn-primary'} btn-sm" 
                   ${m.betsEvaluated ? 'disabled' : ''} 
                   onclick="updateMatchScore(${m.id}, ${isKO}, document.getElementById('score1-${m.id}').value, document.getElementById('score2-${m.id}').value)">
-            ${canManageMatches() ? (m.betsEvaluated ? '🔒 Ausgezahlt & Fix' : (m.played ? '✓ Bestätigen & Auszahlen' : 'Speichern')) : 'Speichern'}
+            ${canManageMatches() ? (m.betsEvaluated ? '🔒 Ausgezahlt' : (m.played ? '✓ Bestätigen' : 'Speichern')) : 'Speichern'}
           </button>
         ` : ''}
-
       </div>
+      ${aggregateHtml}
     </div>
   `;
 }
@@ -1492,23 +1594,62 @@ function placeBet(matchId) {
   saveData();
 }
 
-// Auswertung der Wetten bei Spielende (Wird aufgerufen wenn ein Match-Ergebnis eingetragen wird)
-function evaluateBetsForMatch(matchId, winningTeamId) {
-  const matchBets = bets.filter(b => b.matchId === matchId);
-
-  matchBets.forEach(b => {
-    if (b.chosenTeamId === winningTeamId) {
-      // Gewinn: Verdopplung des Einsatzes (Quote 2.0)
-      const winAmount = b.amount * 2;
-      userBalances[b.playerName] = (userBalances[b.playerName] || 0) + winAmount;
-    }
-  });
-
-  // Abgearbeitete Wetten entfernen
-  bets = bets.filter(b => b.matchId !== matchId);
+// 3. WETTAUSWERTUNG ANHAND DES AGGREGAT-ERGEBNISSES
+function evaluateBetsForMatch(matchId) {
   const match = [...groupMatches, ...koMatches].find(m => m.id === matchId);
-  if (match) {
+  if (!match) return;
+
+  // Prüfen, ob es ein Rückspiel/Aggregat-Match ist
+  let leg1 = match;
+  let leg2 = null;
+
+  if (match.leg === 1) {
+    leg2 = [...groupMatches, ...koMatches].find(m => m.pairedMatchId === match.id || m.id === match.pairedMatchId);
+  } else if (match.leg === 2) {
+    leg2 = match;
+    leg1 = [...groupMatches, ...koMatches].find(m => m.id === match.pairedMatchId);
+  }
+
+  // Falls es ein Doppel-Match (Hin/Rück) ist, Wette erst auswerten, wenn BEIDE Spiele gespielt sind!
+  if (leg1 && leg2) {
+    if (!leg1.played || !leg2.played) return; // Noch auf zweites Spiel warten
+
+    const aggScore1 = leg1.score1 + leg2.score1;
+    const aggScore2 = leg1.score2 + leg2.score2;
+
+    let winningTeamId = null;
+    if (aggScore1 > aggScore2) winningTeamId = leg1.t1Id;
+    else if (aggScore2 > aggScore1) winningTeamId = leg1.t2Id;
+
+    // Wetten auf Hin- und Rückspiel-IDs sammeln
+    const relatedBets = bets.filter(b => b.matchId === leg1.id || b.matchId === leg2.id);
+
+    relatedBets.forEach(b => {
+      if (winningTeamId && b.chosenTeamId === winningTeamId) {
+        const winAmount = b.amount * 2;
+        userBalances[b.playerName] = (userBalances[b.playerName] || 0) + winAmount;
+      }
+    });
+
+    // Wetten aufräumen und absichern
+    bets = bets.filter(b => b.matchId !== leg1.id && b.matchId !== leg2.id);
+    leg1.betsEvaluated = true;
+    leg2.betsEvaluated = true;
+  } else {
+    // Einzelspiel-Fallback
+    const winningTeamId = match.score1 > match.score2 ? match.t1Id : (match.score2 > match.score1 ? match.t2Id : null);
+    const matchBets = bets.filter(b => b.matchId === matchId);
+
+    matchBets.forEach(b => {
+      if (winningTeamId && b.chosenTeamId === winningTeamId) {
+        const winAmount = b.amount * 2;
+        userBalances[b.playerName] = (userBalances[b.playerName] || 0) + winAmount;
+      }
+    });
+
+    bets = bets.filter(b => b.matchId !== matchId);
     match.betsEvaluated = true;
   }
+
   saveData();
 }
