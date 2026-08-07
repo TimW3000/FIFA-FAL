@@ -773,7 +773,6 @@ function removePlayerPassword(index) {
   }
 }
 
-// 7. FESTE GRUPPEN-AUSLOSUNG (Immer 3 Gruppen A, B, C für je 3 Teams)
 function drawGroups() {
   if (!isAdmin()) return;
   if (!teams || teams.length < 3) {
@@ -787,12 +786,12 @@ function drawGroups() {
     // 1. Gruppen A, B, C anlegen
     groups = groupLetters.map(letter => ({ letter, teams: [] }));
 
-    // 2. Teams gleichmäßig verteilen (3 Teams pro Gruppe bei 9 Teams)
+    // 2. Teams gleichmäßig auf die 3 Gruppen verteilen
     shuffledTeams.forEach((team, index) => {
       groups[index % groups.length].teams.push(team.id);
     });
 
-    // 3. Jeder gegen jeden innerhalb der Gruppen generieren
+    // 3. Jeder-gegen-Jeden Spiele innerhalb der Gruppen erstellen
     let rawGroupMatches = [];
     groups.forEach(group => {
       const gTeams = group.teams;
@@ -802,17 +801,20 @@ function drawGroups() {
             group: group.letter,
             t1Id: gTeams[i],
             t2Id: gTeams[j],
-            score1: null,
-            score2: null,
+            score1_h: null, score2_h: null, // Hinspiel-Tore
+            score1_r: null, score2_r: null, // Rückspiel-Tore
+            score1: null,   score2: null,   // Gesamttore
             played: false
           });
         }
       }
     });
 
-    // 4. Spiele abwechselnd anordnen (Gruppe A -> B -> C -> A...)
+    // 4. Spiele abwechselnd mischen (Gruppe A -> B -> C -> A...)
     let matchesByGroup = {};
-    groupLetters.forEach(l => { matchesByGroup[l] = rawGroupMatches.filter(m => m.group === l); });
+    groupLetters.forEach(l => { 
+      matchesByGroup[l] = rawGroupMatches.filter(m => m.group === l); 
+    });
 
     let interleavedMatches = [];
     let maxLen = Math.max(...Object.values(matchesByGroup).map(arr => arr.length));
@@ -825,7 +827,7 @@ function drawGroups() {
       });
     }
 
-    // 5. IDs & Slots zuweisen
+    // 5. IDs & Slots zuweisen und in das globale groupMatches Array speichern
     groupMatches = [];
     let matchId = 1;
     interleavedMatches.forEach((match, idx) => {
@@ -836,13 +838,20 @@ function drawGroups() {
 
     koMatches = [];
     saveData();
-    if (typeof showTab === 'function') showTab('groups');
-    if (typeof renderAll === 'function') renderAll();
+
+    // 6. Beide Reiter (Gruppen-Tabelle UND Spielplan) sofort neu zeichnen
+    if (typeof renderAll === 'function') {
+      renderAll();
+    } else {
+      if (typeof renderGroups === 'function') renderGroups();
+      if (typeof renderMatches === 'function') renderMatches();
+    }
+
+    if (typeof showTab === 'function') showTab('matches'); // Springt direkt zum Reiter "Spiele"
     
-    alert('🎉 3 Gruppen wurden erfolgreich ausgelost und der Spielplan steht!');
+    alert('🎉 3 Gruppen & der komplette Spielplan wurden erfolgreich erstellt!');
   }
 }
-
 function drawKOPhase() {
   if (!isAdmin()) return;
   if (groups.length === 2) {
